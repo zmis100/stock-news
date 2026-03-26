@@ -1,8 +1,10 @@
 import streamlit as st
 import requests
 import os
+import re
 from dotenv import load_dotenv
-from datetime import date
+from datetime import datetime, date, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
 
 # ── 환경변수 로딩 ──────────────────────────────────────────────
@@ -18,60 +20,101 @@ NAVER_CLIENT_ID     = get_secret("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = get_secret("NAVER_CLIENT_SECRET")
 GEMINI_API_KEY      = get_secret("GEMINI_API_KEY")
 
-# ✅ 실제 확인된 모델명 고정
 GEMINI_MODEL = "models/gemini-2.5-flash"
+
+# ── 한국 시간 동적 계산 ────────────────────────────────────────
+KST = timezone(timedelta(hours=9))
+
+def get_kst_now():
+    """항상 한국 시간 기준 현재 시각을 반환"""
+    return datetime.now(KST)
+
+def get_kst_today():
+    """항상 한국 시간 기준 오늘 날짜를 반환"""
+    return get_kst_now().date()
+
+def get_kst_today_str():
+    return get_kst_today().strftime("%Y년 %m월 %d일")
 
 
 # ══════════════════════════════════════════════════════════════
 # 핵심 함수
 # ══════════════════════════════════════════════════════════════
 
+def clean_html(text: str) -> str:
+    """HTML 태그 및 엔티티 제거"""
+    text = re.sub(r"<[^>]+>", "", text)
+    return text.replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+
+
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_naver_news(query: str, display: int = 10) -> list[dict]:
-    """네이버 뉴스 검색 API 호출"""
+    """네이버 뉴스 검색 API 호출 (5분 캐시)"""
     url = "https://openapi.naver.com/v1/search/news.json"
     headers = {
         "X-Naver-Client-Id":     NAVER_CLIENT_ID,
         "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
     }
-    params = {
-        "query":   query,
-        "display": display,
-        "sort":    "date",
-    }
-    response = requests.get(url, headers=headers, params=params, timeout=10)
+    params = {"query": query, "display": display, "sort": "date"}
 
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=8)
+        if response.status_code != 200:
+            return []
         items = response.json().get("items", [])
-        import re
-        news_list = []
-        for item in items:
-            def clean(text):
-                return re.sub(r"<[^>]+>", "", text).replace("&quot;", '"').replace("&amp;", "&")
-            news_list.append({
-                "title":       clean(item.get("title", "")),
-                "link":        item.get("link", ""),
-                "description": clean(item.get("description", "")),
-                "pubDate":     item.get("pubDate", ""),
-            })
-        return news_list
-    else:
-        st.error(f"네이버 API 오류: {response.status_code} — {response.text}")
+        return [{
+            "title":       clean_html(item.get("title", "")),
+            "link":        item.get("link", ""),
+            "description": clean_html(item.get("description", "")),
+            "pubDate":     item.get("pubDate", ""),
+        } for item in items]
+    except requests.exceptions.Timeout:
+        return []
+    except Exception:
         return []
 
 
-def summarize_with_gemini(label: str, news_list: list[dict], mode: str = "stock") -> str:
-    """확인된 모델로 Gemini API 호출"""
-    if not news_list:
+def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]:
+    """여러 키워드를 병렬로 뉴스 수집"""
+    all_news = []
+    with ThreadPoolExecutor(max_workers=min(len(keywords), 5)) as executor:
+        futures = {
+            executor.submit(fetch_naver_news, f"{kw} 오늘", display): kw
+            for kw in keywords
+        }
+        for future in as_completed(futures):
+            try:
+                news = future.result()
+                all_news.extend(news)
+            except Exception:
+                pass
+
+    # 중복 제거
+    seen = set()
+    unique = []
+    for n in all_news:
+        if n["title"] not in seen:
+            seen.add(n["title"])
+            unique.append(n)
+    return unique
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = "stock") -> str:
+    """Gemini API 호출 (10분 캐시, 같은 뉴스면 재호출 안함)"""
+    if not news_titles_and_descs:
         return "요약할 뉴스 기사가 없습니다."
 
     news_text = "\n\n".join([
-        f"[기사 {i+1}]\n제목: {n['title']}\n내용: {n['description']}"
-        for i, n in enumerate(news_list)
+        f"[기사 {i+1}]\n제목: {title}\n내용: {desc}"
+        for i, (title, desc) in enumerate(news_titles_and_descs)
     ])
+
+    today_str = get_kst_today_str()
 
     if mode == "today":
         prompt = f"""당신은 주식 시장 및 경제 분석 전문가입니다.
-아래는 오늘({date.today().strftime('%Y년 %m월 %d일')}) 수집된 주요 뉴스 기사들입니다.
+아래는 오늘({today_str}) 수집된 주요 뉴스 기사들입니다.
 
 {news_text}
 
@@ -104,7 +147,6 @@ def summarize_with_gemini(label: str, news_list: list[dict], mode: str = "stock"
             contents=prompt,
         )
         return response.text
-
     except Exception as e:
         return (
             f"❌ Gemini API 호출 실패\n\n"
@@ -166,8 +208,10 @@ def main():
             if not news_list:
                 st.error("뉴스를 가져오지 못했습니다. API 키와 검색어를 확인하세요.")
             else:
+                # 캐시 가능하도록 tuple로 변환
+                news_tuple = tuple((n["title"], n["description"]) for n in news_list)
                 with st.spinner("🤖 Gemini AI가 시장 동향 분석 중..."):
-                    summary = summarize_with_gemini(stock_name, news_list, mode="stock")
+                    summary = summarize_with_gemini(stock_name, news_tuple, mode="stock")
 
                 st.subheader(f"🧠 AI 시장 동향 요약 — {stock_name}")
                 st.info(summary)
@@ -187,9 +231,13 @@ def main():
     # TAB 2: 오늘의 시장 동향
     # ════════════════════════════════
     with tab2:
-        today_str = date.today().strftime("%Y년 %m월 %d일")
+        # 항상 한국시간 기준 실시간 날짜 표시
+        kst_now = get_kst_now()
+        today_str = get_kst_today_str()
+        time_str = kst_now.strftime("%H:%M")
+
         st.subheader(f"📅 {today_str} 주요 시장 동향")
-        st.caption("오늘 날짜 기준 주요 경제·증시 뉴스를 수집해 AI가 요약합니다.")
+        st.caption(f"한국시간 {time_str} 기준 · 주요 경제·증시 뉴스를 수집해 AI가 요약합니다.")
 
         keywords = st.multiselect(
             "분석할 키워드 선택 (복수 선택 가능)",
@@ -204,25 +252,16 @@ def main():
             if not keywords:
                 st.warning("키워드를 하나 이상 선택해 주세요.")
             else:
-                all_news = []
-                for kw in keywords:
-                    with st.spinner(f"📡 '{kw}' 뉴스 수집 중..."):
-                        news = fetch_naver_news(f"{kw} 오늘", display=5)
-                        all_news.extend(news)
-
-                seen = set()
-                unique_news = []
-                for n in all_news:
-                    if n["title"] not in seen:
-                        seen.add(n["title"])
-                        unique_news.append(n)
+                with st.spinner(f"📡 {len(keywords)}개 키워드 뉴스 동시 수집 중..."):
+                    unique_news = fetch_multiple_keywords(keywords, display=5)
 
                 if not unique_news:
                     st.error("뉴스를 가져오지 못했습니다.")
                 else:
+                    news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
                     with st.spinner("🤖 Gemini AI가 오늘의 시장 동향 분석 중..."):
                         summary = summarize_with_gemini(
-                            ", ".join(keywords), unique_news, mode="today"
+                            ", ".join(keywords), news_tuple, mode="today"
                         )
 
                     st.subheader("🧠 오늘의 AI 시장 동향 요약")
@@ -239,6 +278,8 @@ def main():
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
         st.success(f"✅ AI 모델: `{GEMINI_MODEL}`")
+        kst_sidebar = get_kst_now()
+        st.caption(f"🕒 한국시간: {kst_sidebar.strftime('%Y-%m-%d %H:%M:%S')}")
         st.header("📖 사용 방법")
         st.markdown("""
 **🔍 종목명 검색 탭**
