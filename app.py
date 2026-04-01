@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from datetime import datetime, date, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
+import FinanceDataReader as fdr
 
 # ── 환경변수 로딩 ──────────────────────────────────────────────
 load_dotenv()
@@ -97,6 +98,32 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
             seen.add(n["title"])
             unique.append(n)
     return unique
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_trading_volume_top(limit: int = 100) -> list[dict]:
+    """KRX 전종목 거래대금 상위 종목 조회 (1시간 캐시)"""
+    try:
+        df = fdr.StockListing('KRX')
+        df['Amount'] = df['Amount'].astype(float)
+        df = df[df['Amount'] > 0]
+        top = df.nlargest(limit, 'Amount')
+        result = []
+        for _, row in top.iterrows():
+            result.append({
+                "rank": len(result) + 1,
+                "name": row["Name"],
+                "code": row["Code"],
+                "market": row["Market"],
+                "close": int(float(row["Close"])),
+                "change_ratio": round(float(row["ChagesRatio"]), 2),
+                "volume": int(float(row["Volume"])),
+                "amount": int(float(row["Amount"])),
+                "marcap": int(float(row["Marcap"])),
+            })
+        return result
+    except Exception:
+        return []
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -558,7 +585,7 @@ def main():
         st.warning("Gemini API 키가 설정되지 않았습니다.")
         api_ok = False
 
-    tab1, tab2, tab3 = st.tabs(["  종목 검색  ", "  시장 동향  ", "  테마 분석  "])
+    tab1, tab2, tab3, tab4 = st.tabs(["  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  "])
 
     # ════════════════════════════════
     # TAB 1: 종목 검색
@@ -668,33 +695,39 @@ def main():
         st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">&#128202; 투자 테마 심층 분석</div>', unsafe_allow_html=True)
 
-        theme_categories = {
-            "에너지 / 소재": ["2차전지", "태양광", "원자력", "수소에너지", "희토류"],
-            "IT / 기술": ["반도체", "AI 인공지능", "클라우드", "로봇", "자율주행"],
-            "바이오 / 헬스": ["바이오", "제약", "헬스케어", "신약개발"],
-            "금융 / 경제": ["금리", "환율", "부동산", "가상화폐", "IPO"],
-            "글로벌": ["미국증시", "중국경제", "유럽증시", "신흥국"],
-            "산업 / 인프라": ["조선", "방산", "건설", "항공우주"],
-        }
+        all_themes = [
+            "2차전지", "태양광", "원자력", "수소에너지", "희토류",
+            "반도체", "AI 인공지능", "클라우드", "로봇", "자율주행",
+            "바이오", "제약", "헬스케어", "신약개발",
+            "금리", "환율", "부동산", "가상화폐", "IPO",
+            "미국증시", "중국경제", "유럽증시", "신흥국",
+            "조선", "방산", "건설", "항공우주", "전력설비", "방위산업",
+        ]
 
-        selected_category = st.selectbox(
-            "카테고리",
-            options=list(theme_categories.keys()),
-            key="theme_category",
-        )
         selected_theme = st.selectbox(
-            "테마",
-            options=theme_categories[selected_category],
+            "추천 테마에서 선택",
+            options=all_themes,
             key="theme_select",
         )
+
+        custom_theme = st.text_input(
+            "또는 직접 테마 입력",
+            placeholder="전력설비, 스마트팩토리, K-뷰티 ...",
+            key="custom_theme",
+        )
+
+        final_theme = custom_theme.strip() if custom_theme.strip() else selected_theme
+
+        if final_theme:
+            render_keyword_chips([final_theme])
 
         theme_btn = st.button("테마 심층 분석", use_container_width=True,
                               disabled=not api_ok, key="theme_btn")
         st.markdown('</div>', unsafe_allow_html=True)
 
         if theme_btn:
-            search_queries = [f"{selected_theme} 관련주", f"{selected_theme} 시장", f"{selected_theme} 전망"]
-            with st.status(f"'{selected_theme}' 테마 심층 분석 중...", expanded=True) as status:
+            search_queries = [f"{final_theme} 관련주", f"{final_theme} 시장", f"{final_theme} 전망"]
+            with st.status(f"'{final_theme}' 테마 심층 분석 중...", expanded=True) as status:
                 all_news = []
                 for i, q in enumerate(search_queries, 1):
                     status.update(label=f"네이버 뉴스 수집 중... ({i}/{len(search_queries)}: {q})", state="running")
@@ -713,15 +746,133 @@ def main():
                     st.error("뉴스를 가져오지 못했습니다.")
                 else:
                     st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
-                    status.update(label=f"Gemini AI가 '{selected_theme}' 대장주·관련주를 분석 중입니다...", state="running")
+                    status.update(label=f"Gemini AI가 '{final_theme}' 대장주·관련주를 분석 중입니다...", state="running")
                     news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                    summary = summarize_with_gemini(selected_theme, news_tuple, mode="theme")
+                    summary = summarize_with_gemini(final_theme, news_tuple, mode="theme")
                     st.write("✅ AI 심층 분석 완료 (대장주 랭킹 포함)")
                     status.update(label="분석 완료!", state="complete")
 
             if unique_news:
-                render_summary(f"'{selected_theme}' 테마 심층 분석", summary)
+                render_summary(f"'{final_theme}' 테마 심층 분석", summary)
                 render_news_list(unique_news)
+
+    # ════════════════════════════════
+    # TAB 4: 거래대금 TOP 100
+    # ════════════════════════════════
+    with tab4:
+        today_str = get_kst_today_str()
+
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-title">&#128293; {today_str} 거래대금 상위 종목</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p style="color:rgba(255,255,255,0.5); font-size:0.85rem; margin-top:-0.5rem;">'
+            'KRX 전종목 거래대금 기준 (KOSPI + KOSDAQ)</p>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        vol_btn = st.button("거래대금 TOP 100 조회", use_container_width=True, key="vol_btn")
+
+        if vol_btn:
+            with st.status("KRX 거래대금 데이터 조회 중...", expanded=True) as status:
+                status.update(label="FinanceDataReader에서 전종목 데이터 수집 중...", state="running")
+                top_list = fetch_trading_volume_top(100)
+
+                if not top_list:
+                    status.update(label="데이터 조회 실패", state="error")
+                    st.error("거래대금 데이터를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+                else:
+                    st.write(f"✅ {len(top_list)}개 종목 거래대금 데이터 수집 완료")
+                    status.update(label="조회 완료!", state="complete")
+
+            if top_list:
+                # 상위 10개는 카드로 강조 표시
+                st.markdown(
+                    '<div class="section-title">&#127942; TOP 10</div>',
+                    unsafe_allow_html=True,
+                )
+                for item in top_list[:10]:
+                    amt_billions = item["amount"] / 1e8
+                    cap_trillions = item["marcap"] / 1e12
+                    chg = item["change_ratio"]
+                    chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
+                    chg_sign = "+" if chg > 0 else ""
+
+                    st.markdown(f"""
+                    <div class="news-card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                        <div style="flex:1; min-width:150px;">
+                            <span style="color:#667eea; font-weight:700; font-size:1.1rem; margin-right:0.5rem;">{item["rank"]}</span>
+                            <span class="news-title" style="display:inline; font-size:1rem;">{item["name"]}</span>
+                            <span style="color:rgba(255,255,255,0.3); font-size:0.75rem; margin-left:0.4rem;">{item["code"]} &middot; {item["market"]}</span>
+                        </div>
+                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+                            <div style="text-align:right;">
+                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">거래대금</div>
+                                <div style="color:#e2e8f0; font-weight:600; font-size:0.95rem;">{amt_billions:,.0f}억</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">등락률</div>
+                                <div style="color:{chg_color}; font-weight:600; font-size:0.95rem;">{chg_sign}{chg:.2f}%</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">종가</div>
+                                <div style="color:#e2e8f0; font-size:0.9rem;">{item["close"]:,}원</div>
+                            </div>
+                            <div style="text-align:right;">
+                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">시총</div>
+                                <div style="color:rgba(255,255,255,0.6); font-size:0.85rem;">{cap_trillions:.1f}조</div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # 11~100위는 테이블로 표시
+                if len(top_list) > 10:
+                    st.markdown(
+                        '<div class="section-title" style="margin-top:2rem;">&#128200; 11 ~ 100위</div>',
+                        unsafe_allow_html=True,
+                    )
+                    table_rows = ""
+                    for item in top_list[10:]:
+                        chg = item["change_ratio"]
+                        chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
+                        chg_sign = "+" if chg > 0 else ""
+                        amt_b = item["amount"] / 1e8
+                        cap_t = item["marcap"] / 1e12
+                        table_rows += f"""
+                        <tr>
+                            <td style="color:#667eea; font-weight:600;">{item["rank"]}</td>
+                            <td style="color:#e2e8f0; font-weight:500;">{item["name"]} <span style="color:rgba(255,255,255,0.25); font-size:0.75rem;">{item["code"]}</span></td>
+                            <td style="color:rgba(255,255,255,0.45);">{item["market"]}</td>
+                            <td style="color:#e2e8f0; text-align:right;">{amt_b:,.0f}억</td>
+                            <td style="color:{chg_color}; text-align:right; font-weight:500;">{chg_sign}{chg:.2f}%</td>
+                            <td style="color:rgba(255,255,255,0.6); text-align:right;">{item["close"]:,}원</td>
+                            <td style="color:rgba(255,255,255,0.4); text-align:right;">{cap_t:.1f}조</td>
+                        </tr>"""
+
+                    st.markdown(f"""
+                    <div style="overflow-x:auto;">
+                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+                        <thead>
+                            <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">#</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">종목명</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">시장</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">거래대금</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">등락률</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">종가</th>
+                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">시총</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {table_rows}
+                        </tbody>
+                    </table>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
@@ -743,7 +894,11 @@ def main():
         </div>
         <div class="sidebar-card">
             <h4>&#128202; 테마 분석</h4>
-            <p>카테고리 &rarr; 테마 선택 &rarr; 심층 분석 리포트</p>
+            <p>테마 선택/입력 &rarr; 심층 분석 &rarr; 대장주 랭킹</p>
+        </div>
+        <div class="sidebar-card">
+            <h4>&#128293; 거래대금</h4>
+            <p>KRX 전종목 거래대금 TOP 100 실시간 조회</p>
         </div>
         """, unsafe_allow_html=True)
 
