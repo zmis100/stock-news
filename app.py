@@ -20,7 +20,7 @@ NAVER_CLIENT_ID     = get_secret("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = get_secret("NAVER_CLIENT_SECRET")
 GEMINI_API_KEY      = get_secret("GEMINI_API_KEY")
 
-GEMINI_MODEL = "models/gemini-2.5-flash"
+GEMINI_MODEL = "models/gemini-2.0-flash"
 
 # ── 한국 시간 동적 계산 ────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
@@ -492,7 +492,7 @@ def render_hero():
     <div class="hero-header">
         <h1>Stock News AI Analyzer</h1>
         <p>AI 기반 실시간 주식 뉴스 분석 & 시장 동향 리포트</p>
-        <div class="hero-badge">Powered by Gemini 2.5 Flash &middot; {time_str}</div>
+        <div class="hero-badge">Powered by Gemini 2.0 Flash &middot; {time_str}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -705,7 +705,7 @@ def main():
         kst_sidebar = get_kst_now()
 
         st.markdown(f"""
-        <div class="sidebar-model"><span>Gemini 2.5 Flash</span></div>
+        <div class="sidebar-model"><span>Gemini 2.0 Flash</span></div>
         <div class="sidebar-time">{kst_sidebar.strftime('%Y-%m-%d %H:%M:%S')} KST</div>
         """, unsafe_allow_html=True)
 
@@ -730,7 +730,7 @@ def main():
             <p>
             <strong>UI</strong> &middot; Streamlit<br>
             <strong>News</strong> &middot; Naver Search API<br>
-            <strong>AI</strong> &middot; Google Gemini 2.5 Flash
+            <strong>AI</strong> &middot; Google Gemini 2.0 Flash
             </p>
         </div>
         """, unsafe_allow_html=True)
