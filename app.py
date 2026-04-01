@@ -268,11 +268,23 @@ def main():
         st.subheader(f"📅 {today_str} 주요 시장 동향")
         st.caption(f"한국시간 {time_str} 기준 · 주요 경제·증시 뉴스를 수집해 AI가 요약합니다.")
 
-        keywords = st.multiselect(
-            "분석할 키워드 선택 (복수 선택 가능)",
+        preset_keywords = st.multiselect(
+            "추천 키워드에서 선택 (복수 선택 가능)",
             options=["코스피", "코스닥", "미국증시", "환율", "금리", "반도체", "2차전지", "AI 주식"],
             default=["코스피", "코스닥"],
         )
+
+        custom_input = st.text_input(
+            "직접 키워드 입력 (쉼표로 구분)",
+            placeholder="예: 전기차, 삼성전자, 유가",
+            key="custom_keywords",
+        )
+
+        custom_keywords = [k.strip() for k in custom_input.split(",") if k.strip()] if custom_input else []
+        keywords = list(dict.fromkeys(preset_keywords + custom_keywords))
+
+        if keywords:
+            st.caption(f"분석 키워드: {', '.join(keywords)}")
 
         today_btn = st.button("📅 오늘 시장 동향 분석", use_container_width=True,
                               disabled=not api_ok, key="today_btn")
