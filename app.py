@@ -47,9 +47,9 @@ def clean_html(text: str) -> str:
     return text.replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def fetch_naver_news(query: str, display: int = 10) -> list[dict]:
-    """네이버 뉴스 검색 API 호출 (5분 캐시)"""
+    """네이버 뉴스 검색 API 호출 (1시간 캐시)"""
     url = "https://openapi.naver.com/v1/search/news.json"
     headers = {
         "X-Naver-Client-Id":     NAVER_CLIENT_ID,
@@ -99,9 +99,9 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
     return unique
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)
 def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = "stock") -> str:
-    """Gemini API 호출 (10분 캐시, 같은 뉴스면 재호출 안함)"""
+    """Gemini API 호출 (1시간 캐시, 같은 뉴스면 재호출 안함)"""
     if not news_titles_and_descs:
         return "요약할 뉴스 기사가 없습니다."
 
@@ -123,11 +123,15 @@ def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = 
 ### 📌 테마 개요
 - '{label}' 테마의 현재 시장 위치와 중요성을 2~3줄로 설명
 
+### 🏆 대장주 & 관련주 랭킹
+아래 뉴스 기사들에서 **가장 많이 언급된 종목**을 기준으로 대장주와 관련주를 분류해 주세요.
+- **🥇 대장주 1위**: 종목명 — 언급 빈도가 가장 높은 핵심 종목. 왜 대장주인지 근거(뉴스 언급 빈도, 시가총액, 테마 대표성)를 1줄로 설명
+- **🥈 대장주 2위**: 종목명 — 근거 1줄 설명
+- **🥉 대장주 3위**: 종목명 — 근거 1줄 설명
+- **관련주**: 위 대장주 외에 뉴스에서 언급된 관련 종목들을 나열하고 각각 한줄 설명
+
 ### 📈 핵심 동향
 - 최근 주요 뉴스에서 파악되는 핵심 트렌드 3~5가지를 불릿 포인트로 정리
-
-### 🏢 관련 주요 종목
-- 이 테마와 관련된 대표 종목들을 언급하고 최근 뉴스에서의 동향 설명
 
 ### ⚡ 호재 vs 악재
 - **호재**: 긍정적 요인 정리
@@ -578,16 +582,22 @@ def main():
 
         if search_btn and stock_name.strip():
             query = f"{stock_name.strip()} 주식"
-            with st.spinner(f"'{stock_name}' 관련 최신 뉴스 수집 중..."):
+            with st.status(f"'{stock_name}' 분석 중...", expanded=True) as status:
+                status.update(label="네이버 뉴스 수집 중...", state="running")
                 news_list = fetch_naver_news(query, display=10)
 
-            if not news_list:
-                st.error("뉴스를 가져오지 못했습니다. API 키와 검색어를 확인하세요.")
-            else:
-                news_tuple = tuple((n["title"], n["description"]) for n in news_list)
-                with st.spinner("Gemini AI가 시장 동향 분석 중..."):
+                if not news_list:
+                    status.update(label="뉴스 수집 실패", state="error")
+                    st.error("뉴스를 가져오지 못했습니다. API 키와 검색어를 확인하세요.")
+                else:
+                    st.write(f"✅ 뉴스 {len(news_list)}건 수집 완료")
+                    status.update(label="Gemini AI가 핵심을 분석 중입니다...", state="running")
+                    news_tuple = tuple((n["title"], n["description"]) for n in news_list)
                     summary = summarize_with_gemini(stock_name, news_tuple, mode="stock")
+                    st.write("✅ AI 분석 완료")
+                    status.update(label="분석 완료!", state="complete")
 
+            if news_list:
                 render_summary(f"AI 시장 동향 요약 -- {stock_name}", summary)
                 render_news_list(news_list)
 
@@ -630,17 +640,24 @@ def main():
             if not keywords:
                 st.warning("키워드를 하나 이상 선택해 주세요.")
             else:
-                with st.spinner(f"{len(keywords)}개 키워드 뉴스 동시 수집 중..."):
+                with st.status(f"{len(keywords)}개 키워드 시장 동향 분석 중...", expanded=True) as status:
+                    status.update(label=f"네이버 뉴스 수집 중... ({len(keywords)}개 키워드 병렬 처리)", state="running")
                     unique_news = fetch_multiple_keywords(keywords, display=5)
 
-                if not unique_news:
-                    st.error("뉴스를 가져오지 못했습니다.")
-                else:
-                    news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                    with st.spinner("Gemini AI가 오늘의 시장 동향 분석 중..."):
+                    if not unique_news:
+                        status.update(label="뉴스 수집 실패", state="error")
+                        st.error("뉴스를 가져오지 못했습니다.")
+                    else:
+                        st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
+                        status.update(label="Gemini AI가 오늘의 시장을 분석 중입니다...", state="running")
+                        news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
                         summary = summarize_with_gemini(
                             ", ".join(keywords), news_tuple, mode="today"
                         )
+                        st.write("✅ AI 분석 완료")
+                        status.update(label="분석 완료!", state="complete")
+
+                if unique_news:
                     render_summary("오늘의 AI 시장 동향 요약", summary)
                     render_news_list(unique_news)
 
@@ -677,26 +694,32 @@ def main():
 
         if theme_btn:
             search_queries = [f"{selected_theme} 관련주", f"{selected_theme} 시장", f"{selected_theme} 전망"]
-            all_news = []
-            for q in search_queries:
-                with st.spinner(f"'{q}' 뉴스 수집 중..."):
+            with st.status(f"'{selected_theme}' 테마 심층 분석 중...", expanded=True) as status:
+                all_news = []
+                for i, q in enumerate(search_queries, 1):
+                    status.update(label=f"네이버 뉴스 수집 중... ({i}/{len(search_queries)}: {q})", state="running")
                     news = fetch_naver_news(q, display=5)
                     all_news.extend(news)
 
-            seen = set()
-            unique_news = []
-            for n in all_news:
-                if n["title"] not in seen:
-                    seen.add(n["title"])
-                    unique_news.append(n)
+                seen = set()
+                unique_news = []
+                for n in all_news:
+                    if n["title"] not in seen:
+                        seen.add(n["title"])
+                        unique_news.append(n)
 
-            if not unique_news:
-                st.error("뉴스를 가져오지 못했습니다.")
-            else:
-                news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                with st.spinner(f"Gemini AI가 '{selected_theme}' 테마 심층 분석 중..."):
+                if not unique_news:
+                    status.update(label="뉴스 수집 실패", state="error")
+                    st.error("뉴스를 가져오지 못했습니다.")
+                else:
+                    st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
+                    status.update(label=f"Gemini AI가 '{selected_theme}' 대장주·관련주를 분석 중입니다...", state="running")
+                    news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
                     summary = summarize_with_gemini(selected_theme, news_tuple, mode="theme")
+                    st.write("✅ AI 심층 분석 완료 (대장주 랭킹 포함)")
+                    status.update(label="분석 완료!", state="complete")
 
+            if unique_news:
                 render_summary(f"'{selected_theme}' 테마 심층 분석", summary)
                 render_news_list(unique_news)
 
