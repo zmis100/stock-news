@@ -829,50 +829,46 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
 
-                # 11~100위는 테이블로 표시
+                # 11~100위도 카드형 UI
                 if len(top_list) > 10:
                     st.markdown(
                         '<div class="section-title" style="margin-top:2rem;">&#128200; 11 ~ 100위</div>',
                         unsafe_allow_html=True,
                     )
-                    table_rows = ""
                     for item in top_list[10:]:
+                        amt_billions = item["amount"] / 1e8
+                        cap_trillions = item["marcap"] / 1e12
                         chg = item["change_ratio"]
                         chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
                         chg_sign = "+" if chg > 0 else ""
-                        amt_b = item["amount"] / 1e8
-                        cap_t = item["marcap"] / 1e12
-                        table_rows += f"""
-                        <tr>
-                            <td style="color:#667eea; font-weight:600;">{item["rank"]}</td>
-                            <td style="color:#e2e8f0; font-weight:500;">{item["name"]} <span style="color:rgba(255,255,255,0.25); font-size:0.75rem;">{item["code"]}</span></td>
-                            <td style="color:rgba(255,255,255,0.45);">{item["market"]}</td>
-                            <td style="color:#e2e8f0; text-align:right;">{amt_b:,.0f}억</td>
-                            <td style="color:{chg_color}; text-align:right; font-weight:500;">{chg_sign}{chg:.2f}%</td>
-                            <td style="color:rgba(255,255,255,0.6); text-align:right;">{item["close"]:,}원</td>
-                            <td style="color:rgba(255,255,255,0.4); text-align:right;">{cap_t:.1f}조</td>
-                        </tr>"""
 
-                    st.markdown(f"""
-                    <div style="overflow-x:auto;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-                        <thead>
-                            <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">#</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">종목명</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:left; padding:0.5rem 0.3rem; font-weight:500;">시장</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">거래대금</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">등락률</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">종가</th>
-                                <th style="color:rgba(255,255,255,0.4); text-align:right; padding:0.5rem 0.3rem; font-weight:500;">시총</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {table_rows}
-                        </tbody>
-                    </table>
-                    </div>
-                    """, unsafe_allow_html=True)
+                        st.markdown(f"""
+                        <div class="news-card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                            <div style="flex:1; min-width:150px;">
+                                <span style="color:#667eea; font-weight:700; font-size:1.1rem; margin-right:0.5rem;">{item["rank"]}</span>
+                                <span class="news-title" style="display:inline; font-size:1rem;">{item["name"]}</span>
+                                <span style="color:rgba(255,255,255,0.3); font-size:0.75rem; margin-left:0.4rem;">{item["code"]} &middot; {item["market"]}</span>
+                            </div>
+                            <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+                                <div style="text-align:right;">
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">거래대금</div>
+                                    <div style="color:#e2e8f0; font-weight:600; font-size:0.95rem;">{amt_billions:,.0f}억</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">등락률</div>
+                                    <div style="color:{chg_color}; font-weight:600; font-size:0.95rem;">{chg_sign}{chg:.2f}%</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">종가</div>
+                                    <div style="color:#e2e8f0; font-size:0.9rem;">{item["close"]:,}원</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">시총</div>
+                                    <div style="color:rgba(255,255,255,0.6); font-size:0.85rem;">{cap_trillions:.1f}조</div>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
