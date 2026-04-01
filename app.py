@@ -789,86 +789,69 @@ def main():
                     status.update(label="조회 완료!", state="complete")
 
             if top_list:
-                # 상위 10개는 카드로 강조 표시
-                st.markdown(
-                    '<div class="section-title">&#127942; TOP 10</div>',
-                    unsafe_allow_html=True,
-                )
-                for item in top_list[:10]:
-                    amt_billions = item["amount"] / 1e8
-                    cap_trillions = item["marcap"] / 1e12
-                    chg = item["change_ratio"]
-                    chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
-                    chg_sign = "+" if chg > 0 else ""
+                st.session_state["vol_data"] = top_list
 
-                    st.markdown(f"""
-                    <div class="news-card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-                        <div style="flex:1; min-width:150px;">
-                            <span style="color:#667eea; font-weight:700; font-size:1.1rem; margin-right:0.5rem;">{item["rank"]}</span>
-                            <span class="news-title" style="display:inline; font-size:1rem;">{item["name"]}</span>
-                            <span style="color:rgba(255,255,255,0.3); font-size:0.75rem; margin-left:0.4rem;">{item["code"]} &middot; {item["market"]}</span>
+        if "vol_data" in st.session_state and st.session_state["vol_data"]:
+            top_list = st.session_state["vol_data"]
+
+            # 정렬 옵션
+            sort_options = {
+                "거래대금 높은순": ("amount", True),
+                "거래대금 낮은순": ("amount", False),
+                "등락률 높은순": ("change_ratio", True),
+                "등락률 낮은순": ("change_ratio", False),
+            }
+            selected_sort = st.selectbox(
+                "정렬 기준",
+                options=list(sort_options.keys()),
+                key="vol_sort",
+            )
+            sort_key, sort_desc = sort_options[selected_sort]
+            sorted_list = sorted(top_list, key=lambda x: x[sort_key], reverse=sort_desc)
+
+            # 순위 재부여
+            for i, item in enumerate(sorted_list, 1):
+                item["display_rank"] = i
+
+            # 전체 카드 렌더링
+            st.markdown(
+                f'<div class="section-title">&#127942; {selected_sort} TOP 100</div>',
+                unsafe_allow_html=True,
+            )
+            for item in sorted_list:
+                amt_billions = item["amount"] / 1e8
+                cap_trillions = item["marcap"] / 1e12
+                chg = item["change_ratio"]
+                chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
+                chg_sign = "+" if chg > 0 else ""
+
+                st.markdown(f"""
+                <div class="news-card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
+                    <div style="flex:1; min-width:150px;">
+                        <span style="color:#667eea; font-weight:700; font-size:1.1rem; margin-right:0.5rem;">{item["display_rank"]}</span>
+                        <span class="news-title" style="display:inline; font-size:1rem;">{item["name"]}</span>
+                        <span style="color:rgba(255,255,255,0.3); font-size:0.75rem; margin-left:0.4rem;">{item["code"]} &middot; {item["market"]}</span>
+                    </div>
+                    <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
+                        <div style="text-align:right;">
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">거래대금</div>
+                            <div style="color:#e2e8f0; font-weight:600; font-size:0.95rem;">{amt_billions:,.0f}억</div>
                         </div>
-                        <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
-                            <div style="text-align:right;">
-                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">거래대금</div>
-                                <div style="color:#e2e8f0; font-weight:600; font-size:0.95rem;">{amt_billions:,.0f}억</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">등락률</div>
-                                <div style="color:{chg_color}; font-weight:600; font-size:0.95rem;">{chg_sign}{chg:.2f}%</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">종가</div>
-                                <div style="color:#e2e8f0; font-size:0.9rem;">{item["close"]:,}원</div>
-                            </div>
-                            <div style="text-align:right;">
-                                <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">시총</div>
-                                <div style="color:rgba(255,255,255,0.6); font-size:0.85rem;">{cap_trillions:.1f}조</div>
-                            </div>
+                        <div style="text-align:right;">
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">등락률</div>
+                            <div style="color:{chg_color}; font-weight:600; font-size:0.95rem;">{chg_sign}{chg:.2f}%</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">종가</div>
+                            <div style="color:#e2e8f0; font-size:0.9rem;">{item["close"]:,}원</div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">시총</div>
+                            <div style="color:rgba(255,255,255,0.6); font-size:0.85rem;">{cap_trillions:.1f}조</div>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
-
-                # 11~100위도 카드형 UI
-                if len(top_list) > 10:
-                    st.markdown(
-                        '<div class="section-title" style="margin-top:2rem;">&#128200; 11 ~ 100위</div>',
-                        unsafe_allow_html=True,
-                    )
-                    for item in top_list[10:]:
-                        amt_billions = item["amount"] / 1e8
-                        cap_trillions = item["marcap"] / 1e12
-                        chg = item["change_ratio"]
-                        chg_color = "#ef4444" if chg < 0 else "#22c55e" if chg > 0 else "rgba(255,255,255,0.5)"
-                        chg_sign = "+" if chg > 0 else ""
-
-                        st.markdown(f"""
-                        <div class="news-card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem;">
-                            <div style="flex:1; min-width:150px;">
-                                <span style="color:#667eea; font-weight:700; font-size:1.1rem; margin-right:0.5rem;">{item["rank"]}</span>
-                                <span class="news-title" style="display:inline; font-size:1rem;">{item["name"]}</span>
-                                <span style="color:rgba(255,255,255,0.3); font-size:0.75rem; margin-left:0.4rem;">{item["code"]} &middot; {item["market"]}</span>
-                            </div>
-                            <div style="display:flex; gap:1.5rem; flex-wrap:wrap; align-items:center;">
-                                <div style="text-align:right;">
-                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">거래대금</div>
-                                    <div style="color:#e2e8f0; font-weight:600; font-size:0.95rem;">{amt_billions:,.0f}억</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">등락률</div>
-                                    <div style="color:{chg_color}; font-weight:600; font-size:0.95rem;">{chg_sign}{chg:.2f}%</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">종가</div>
-                                    <div style="color:#e2e8f0; font-size:0.9rem;">{item["close"]:,}원</div>
-                                </div>
-                                <div style="text-align:right;">
-                                    <div style="color:rgba(255,255,255,0.4); font-size:0.7rem;">시총</div>
-                                    <div style="color:rgba(255,255,255,0.6); font-size:0.85rem;">{cap_trillions:.1f}조</div>
-                                </div>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
 
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
