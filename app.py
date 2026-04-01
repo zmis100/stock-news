@@ -188,70 +188,408 @@ def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = 
 # Streamlit UI
 # ══════════════════════════════════════════════════════════════
 
+def inject_custom_css():
+    """프리미엄 UI 커스텀 CSS 주입"""
+    st.markdown("""
+    <style>
+    /* ── 기본 폰트 & 배경 ── */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Noto Sans KR', sans-serif; }
+
+    .stApp {
+        background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 50%, #16213e 100%);
+    }
+
+    /* ── 헤더 영역 ── */
+    .hero-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 16px;
+        padding: 2rem 1.5rem;
+        margin-bottom: 1.5rem;
+        text-align: center;
+        box-shadow: 0 8px 32px rgba(102, 126, 234, 0.3);
+    }
+    .hero-header h1 {
+        color: #fff;
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin: 0 0 0.3rem 0;
+        letter-spacing: -0.5px;
+    }
+    .hero-header p {
+        color: rgba(255,255,255,0.85);
+        font-size: 0.9rem;
+        margin: 0;
+    }
+    .hero-badge {
+        display: inline-block;
+        background: rgba(255,255,255,0.15);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 20px;
+        padding: 0.25rem 0.8rem;
+        color: #fff;
+        font-size: 0.75rem;
+        margin-top: 0.8rem;
+    }
+
+    /* ── 탭 스타일 ── */
+    .stTabs [data-baseweb="tab-list"] {
+        background: rgba(255,255,255,0.03);
+        border-radius: 12px;
+        padding: 4px;
+        gap: 4px;
+        border: 1px solid rgba(255,255,255,0.06);
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 10px;
+        color: rgba(255,255,255,0.6);
+        font-weight: 500;
+        font-size: 0.9rem;
+        padding: 0.6rem 1rem;
+        transition: all 0.2s ease;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea, #764ba2) !important;
+        color: #fff !important;
+        font-weight: 600;
+        box-shadow: 0 4px 15px rgba(102,126,234,0.4);
+    }
+    .stTabs [data-baseweb="tab-highlight"] { display: none; }
+    .stTabs [data-baseweb="tab-border"] { display: none; }
+
+    /* ── 카드 컨테이너 ── */
+    .glass-card {
+        background: rgba(255,255,255,0.04);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+    }
+    .summary-card {
+        background: linear-gradient(135deg, rgba(102,126,234,0.1), rgba(118,75,162,0.1));
+        border: 1px solid rgba(102,126,234,0.2);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        box-shadow: 0 4px 24px rgba(102,126,234,0.1);
+    }
+    .summary-card h3 {
+        color: #a78bfa;
+        font-size: 1.1rem;
+        margin-bottom: 0.8rem;
+    }
+    .news-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 12px;
+        padding: 1rem 1.2rem;
+        margin: 0.5rem 0;
+        transition: all 0.2s ease;
+    }
+    .news-card:hover {
+        background: rgba(255,255,255,0.06);
+        border-color: rgba(102,126,234,0.3);
+        transform: translateY(-1px);
+    }
+    .news-card .news-title {
+        color: #e2e8f0;
+        font-weight: 600;
+        font-size: 0.95rem;
+        margin-bottom: 0.4rem;
+        line-height: 1.4;
+    }
+    .news-card .news-desc {
+        color: rgba(255,255,255,0.55);
+        font-size: 0.85rem;
+        line-height: 1.5;
+        margin-bottom: 0.5rem;
+    }
+    .news-card .news-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.5rem;
+    }
+    .news-card .news-date {
+        color: rgba(255,255,255,0.35);
+        font-size: 0.75rem;
+    }
+    .news-card a {
+        color: #818cf8;
+        font-size: 0.8rem;
+        text-decoration: none;
+        font-weight: 500;
+        transition: color 0.2s;
+    }
+    .news-card a:hover { color: #a78bfa; }
+    .news-count-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        border-radius: 20px;
+        padding: 0.2rem 0.7rem;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-left: 0.5rem;
+    }
+    .section-title {
+        color: #e2e8f0;
+        font-size: 1.15rem;
+        font-weight: 600;
+        margin: 1.5rem 0 0.8rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .keyword-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin: 0.5rem 0;
+    }
+    .keyword-chip {
+        background: rgba(102,126,234,0.15);
+        border: 1px solid rgba(102,126,234,0.3);
+        border-radius: 20px;
+        padding: 0.25rem 0.75rem;
+        color: #818cf8;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+
+    /* ── 버튼 ── */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: #fff !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        font-size: 0.95rem !important;
+        padding: 0.6rem 1.5rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 4px 15px rgba(102,126,234,0.3) !important;
+    }
+    .stButton > button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 25px rgba(102,126,234,0.5) !important;
+    }
+    .stButton > button:active { transform: translateY(0) !important; }
+    .stButton > button[disabled] {
+        background: rgba(255,255,255,0.1) !important;
+        box-shadow: none !important;
+        color: rgba(255,255,255,0.3) !important;
+    }
+
+    /* ── 입력 필드 ── */
+    .stTextInput > div > div > input,
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div {
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        border-radius: 10px !important;
+        color: #e2e8f0 !important;
+        transition: border-color 0.2s ease !important;
+    }
+    .stTextInput > div > div > input:focus,
+    .stSelectbox > div > div:focus-within,
+    .stMultiSelect > div > div:focus-within {
+        border-color: #667eea !important;
+        box-shadow: 0 0 0 2px rgba(102,126,234,0.2) !important;
+    }
+
+    /* ── 사이드바 ── */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0f0f1a 0%, #1a1a2e 100%) !important;
+        border-right: 1px solid rgba(255,255,255,0.06);
+    }
+    section[data-testid="stSidebar"] .stMarkdown { color: rgba(255,255,255,0.7); }
+
+    /* ── 사이드바 카드 ── */
+    .sidebar-card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 1rem;
+        margin: 0.8rem 0;
+    }
+    .sidebar-card h4 {
+        color: #a78bfa;
+        font-size: 0.95rem;
+        margin-bottom: 0.5rem;
+    }
+    .sidebar-card p, .sidebar-card li {
+        color: rgba(255,255,255,0.6);
+        font-size: 0.82rem;
+        line-height: 1.6;
+    }
+    .sidebar-model {
+        background: linear-gradient(135deg, rgba(102,126,234,0.15), rgba(118,75,162,0.15));
+        border: 1px solid rgba(102,126,234,0.25);
+        border-radius: 10px;
+        padding: 0.6rem 1rem;
+        text-align: center;
+        margin-bottom: 1rem;
+    }
+    .sidebar-model span {
+        color: #a78bfa;
+        font-weight: 600;
+        font-size: 0.85rem;
+    }
+    .sidebar-time {
+        text-align: center;
+        color: rgba(255,255,255,0.4);
+        font-size: 0.75rem;
+        margin-bottom: 1rem;
+    }
+    .footer-notice {
+        background: rgba(234,179,8,0.08);
+        border: 1px solid rgba(234,179,8,0.15);
+        border-radius: 10px;
+        padding: 0.6rem 0.8rem;
+        color: rgba(234,179,8,0.7);
+        font-size: 0.75rem;
+        text-align: center;
+        margin-top: 1rem;
+    }
+
+    /* ── 스피너 ── */
+    .stSpinner > div { color: #a78bfa !important; }
+
+    /* ── 경고/에러 박스 ── */
+    .stAlert { border-radius: 12px !important; }
+
+    /* ── Expander 숨기기 (뉴스를 커스텀 카드로 대체) ── */
+
+    /* ── 모바일 반응형 ── */
+    @media (max-width: 768px) {
+        .hero-header { padding: 1.2rem 1rem; border-radius: 12px; }
+        .hero-header h1 { font-size: 1.3rem; }
+        .hero-header p { font-size: 0.8rem; }
+        .glass-card, .summary-card { padding: 1rem; border-radius: 12px; }
+        .news-card { padding: 0.8rem; }
+        .news-card .news-title { font-size: 0.88rem; }
+        .stTabs [data-baseweb="tab"] { font-size: 0.78rem; padding: 0.5rem 0.6rem; }
+        .stButton > button { font-size: 0.88rem !important; padding: 0.5rem 1rem !important; }
+        .section-title { font-size: 1rem; }
+    }
+    @media (max-width: 480px) {
+        .hero-header h1 { font-size: 1.1rem; }
+        .stTabs [data-baseweb="tab-list"] { flex-wrap: wrap; }
+        .stTabs [data-baseweb="tab"] { font-size: 0.72rem; padding: 0.4rem 0.5rem; flex: 1; min-width: 0; text-align: center; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def render_hero():
+    """상단 히어로 헤더"""
+    kst_now = get_kst_now()
+    time_str = kst_now.strftime("%H:%M KST")
+    st.markdown(f"""
+    <div class="hero-header">
+        <h1>Stock News AI Analyzer</h1>
+        <p>AI 기반 실시간 주식 뉴스 분석 & 시장 동향 리포트</p>
+        <div class="hero-badge">Powered by Gemini 2.5 Flash &middot; {time_str}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_summary(title: str, content: str):
+    """AI 요약 결과를 프리미엄 카드로 렌더링"""
+    st.markdown(f'<div class="section-title">&#129504; {title}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="summary-card">', unsafe_allow_html=True)
+    st.markdown(content)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_news_list(news_list: list[dict]):
+    """뉴스 목록을 카드 형태로 렌더링"""
+    st.markdown(
+        f'<div class="section-title">&#128240; '
+        f'수집된 뉴스 <span class="news-count-badge">{len(news_list)}건</span></div>',
+        unsafe_allow_html=True,
+    )
+    for news in news_list:
+        title = news["title"]
+        desc = news["description"]
+        link = news["link"]
+        pub = news.get("pubDate", "")
+        st.markdown(f"""
+        <div class="news-card">
+            <div class="news-title">{title}</div>
+            <div class="news-desc">{desc}</div>
+            <div class="news-meta">
+                <span class="news-date">{pub}</span>
+                <a href="{link}" target="_blank">원문 보기 &#8594;</a>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def render_keyword_chips(keywords: list[str]):
+    """키워드 칩 렌더링"""
+    chips = "".join(f'<span class="keyword-chip">{kw}</span>' for kw in keywords)
+    st.markdown(f'<div class="keyword-chips">{chips}</div>', unsafe_allow_html=True)
+
+
 def main():
     st.set_page_config(
-        page_title="주식 뉴스 AI 요약",
+        page_title="Stock News AI Analyzer",
         page_icon="📈",
         layout="centered",
     )
 
-    st.title("📈 주식 뉴스 AI 시장 동향 분석기")
-    st.caption("종목명 검색 또는 오늘의 시장 동향을 AI가 요약해 드립니다.")
-    st.divider()
+    inject_custom_css()
+    render_hero()
 
     # ── API 키 유효성 체크 ──────────────────────────────────────
     api_ok = True
     if not NAVER_CLIENT_ID or not NAVER_CLIENT_SECRET:
-        st.warning("⚠️ 네이버 API 키가 설정되지 않았습니다. secrets.toml을 확인하세요.")
+        st.warning("네이버 API 키가 설정되지 않았습니다.")
         api_ok = False
     if not GEMINI_API_KEY:
-        st.warning("⚠️ Gemini API 키가 설정되지 않았습니다. secrets.toml을 확인하세요.")
+        st.warning("Gemini API 키가 설정되지 않았습니다.")
         api_ok = False
 
-    tab1, tab2, tab3 = st.tabs(["🔍 종목명 검색", "📅 오늘의 시장 동향", "📊 테마별 분석"])
+    tab1, tab2, tab3 = st.tabs(["  종목 검색  ", "  시장 동향  ", "  테마 분석  "])
 
     # ════════════════════════════════
     # TAB 1: 종목 검색
     # ════════════════════════════════
     with tab1:
-        st.subheader("종목명으로 뉴스 검색 및 AI 요약")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">&#128270; 종목명으로 뉴스 검색</div>', unsafe_allow_html=True)
 
         col1, col2 = st.columns([4, 1])
         with col1:
             stock_name = st.text_input(
                 label="종목명",
-                placeholder="예: 삼성전자, SK하이닉스, 카카오",
+                placeholder="삼성전자, SK하이닉스, 카카오 ...",
                 label_visibility="collapsed",
                 key="stock_input",
             )
         with col2:
-            search_btn = st.button("🔍 분석", use_container_width=True,
+            search_btn = st.button("분석", use_container_width=True,
                                    disabled=not api_ok, key="stock_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         if search_btn and stock_name.strip():
             query = f"{stock_name.strip()} 주식"
-
-            with st.spinner(f"📡 '{stock_name}' 관련 최신 뉴스 수집 중..."):
+            with st.spinner(f"'{stock_name}' 관련 최신 뉴스 수집 중..."):
                 news_list = fetch_naver_news(query, display=10)
 
             if not news_list:
                 st.error("뉴스를 가져오지 못했습니다. API 키와 검색어를 확인하세요.")
             else:
-                # 캐시 가능하도록 tuple로 변환
                 news_tuple = tuple((n["title"], n["description"]) for n in news_list)
-                with st.spinner("🤖 Gemini AI가 시장 동향 분석 중..."):
+                with st.spinner("Gemini AI가 시장 동향 분석 중..."):
                     summary = summarize_with_gemini(stock_name, news_tuple, mode="stock")
 
-                st.subheader(f"🧠 AI 시장 동향 요약 — {stock_name}")
-                st.info(summary)
-                st.divider()
-
-                st.subheader(f"📰 수집된 뉴스 ({len(news_list)}건)")
-                for i, news in enumerate(news_list, 1):
-                    with st.expander(f"{i}. {news['title']}"):
-                        st.caption(f"🕒 {news.get('pubDate', '')}")
-                        st.write(news["description"])
-                        st.markdown(f"[🔗 원문 보기]({news['link']})")
+                render_summary(f"AI 시장 동향 요약 -- {stock_name}", summary)
+                render_news_list(news_list)
 
         elif search_btn and not stock_name.strip():
             st.warning("종목명을 입력해 주세요.")
@@ -260,98 +598,88 @@ def main():
     # TAB 2: 오늘의 시장 동향
     # ════════════════════════════════
     with tab2:
-        # 항상 한국시간 기준 실시간 날짜 표시
-        kst_now = get_kst_now()
         today_str = get_kst_today_str()
-        time_str = kst_now.strftime("%H:%M")
 
-        st.subheader(f"📅 {today_str} 주요 시장 동향")
-        st.caption(f"한국시간 {time_str} 기준 · 주요 경제·증시 뉴스를 수집해 AI가 요약합니다.")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="section-title">&#128197; {today_str} 시장 동향</div>',
+            unsafe_allow_html=True,
+        )
 
         preset_keywords = st.multiselect(
-            "추천 키워드에서 선택 (복수 선택 가능)",
+            "추천 키워드 선택",
             options=["코스피", "코스닥", "미국증시", "환율", "금리", "반도체", "2차전지", "AI 주식"],
             default=["코스피", "코스닥"],
         )
-
         custom_input = st.text_input(
             "직접 키워드 입력 (쉼표로 구분)",
-            placeholder="예: 전기차, 삼성전자, 유가",
+            placeholder="전기차, 삼성전자, 유가 ...",
             key="custom_keywords",
         )
-
         custom_keywords = [k.strip() for k in custom_input.split(",") if k.strip()] if custom_input else []
         keywords = list(dict.fromkeys(preset_keywords + custom_keywords))
 
         if keywords:
-            st.caption(f"분석 키워드: {', '.join(keywords)}")
+            render_keyword_chips(keywords)
 
-        today_btn = st.button("📅 오늘 시장 동향 분석", use_container_width=True,
+        today_btn = st.button("시장 동향 분석", use_container_width=True,
                               disabled=not api_ok, key="today_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         if today_btn:
             if not keywords:
                 st.warning("키워드를 하나 이상 선택해 주세요.")
             else:
-                with st.spinner(f"📡 {len(keywords)}개 키워드 뉴스 동시 수집 중..."):
+                with st.spinner(f"{len(keywords)}개 키워드 뉴스 동시 수집 중..."):
                     unique_news = fetch_multiple_keywords(keywords, display=5)
 
                 if not unique_news:
                     st.error("뉴스를 가져오지 못했습니다.")
                 else:
                     news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                    with st.spinner("🤖 Gemini AI가 오늘의 시장 동향 분석 중..."):
+                    with st.spinner("Gemini AI가 오늘의 시장 동향 분석 중..."):
                         summary = summarize_with_gemini(
                             ", ".join(keywords), news_tuple, mode="today"
                         )
-
-                    st.subheader("🧠 오늘의 AI 시장 동향 요약")
-                    st.info(summary)
-                    st.divider()
-
-                    st.subheader(f"📰 수집된 뉴스 ({len(unique_news)}건)")
-                    for i, news in enumerate(unique_news, 1):
-                        with st.expander(f"{i}. {news['title']}"):
-                            st.caption(f"🕒 {news.get('pubDate', '')}")
-                            st.write(news["description"])
-                            st.markdown(f"[🔗 원문 보기]({news['link']})")
+                    render_summary("오늘의 AI 시장 동향 요약", summary)
+                    render_news_list(unique_news)
 
     # ════════════════════════════════
     # TAB 3: 테마별 분석
     # ════════════════════════════════
     with tab3:
-        st.subheader("📊 투자 테마별 심층 분석")
-        st.caption("관심 있는 투자 테마를 선택하면 관련 뉴스를 수집하고 AI가 심층 분석합니다.")
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown('<div class="section-title">&#128202; 투자 테마 심층 분석</div>', unsafe_allow_html=True)
 
         theme_categories = {
-            "🔋 에너지·소재": ["2차전지", "태양광", "원자력", "수소에너지", "희토류"],
-            "💻 IT·기술": ["반도체", "AI 인공지능", "클라우드", "로봇", "자율주행"],
-            "🏥 바이오·헬스": ["바이오", "제약", "헬스케어", "신약개발"],
-            "💰 금융·경제": ["금리", "환율", "부동산", "가상화폐", "IPO"],
-            "🌍 글로벌": ["미국증시", "중국경제", "유럽증시", "신흥국"],
-            "🏗️ 산업·인프라": ["조선", "방산", "건설", "항공우주"],
+            "에너지 / 소재": ["2차전지", "태양광", "원자력", "수소에너지", "희토류"],
+            "IT / 기술": ["반도체", "AI 인공지능", "클라우드", "로봇", "자율주행"],
+            "바이오 / 헬스": ["바이오", "제약", "헬스케어", "신약개발"],
+            "금융 / 경제": ["금리", "환율", "부동산", "가상화폐", "IPO"],
+            "글로벌": ["미국증시", "중국경제", "유럽증시", "신흥국"],
+            "산업 / 인프라": ["조선", "방산", "건설", "항공우주"],
         }
 
         selected_category = st.selectbox(
-            "테마 카테고리 선택",
+            "카테고리",
             options=list(theme_categories.keys()),
             key="theme_category",
         )
-
         selected_theme = st.selectbox(
-            "분석할 테마 선택",
+            "테마",
             options=theme_categories[selected_category],
             key="theme_select",
         )
 
-        theme_btn = st.button("📊 테마 심층 분석", use_container_width=True,
+        theme_btn = st.button("테마 심층 분석", use_container_width=True,
                               disabled=not api_ok, key="theme_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         if theme_btn:
             search_queries = [f"{selected_theme} 관련주", f"{selected_theme} 시장", f"{selected_theme} 전망"]
             all_news = []
             for q in search_queries:
-                with st.spinner(f"📡 '{q}' 뉴스 수집 중..."):
+                with st.spinner(f"'{q}' 뉴스 수집 중..."):
                     news = fetch_naver_news(q, display=5)
                     all_news.extend(news)
 
@@ -366,53 +694,52 @@ def main():
                 st.error("뉴스를 가져오지 못했습니다.")
             else:
                 news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                with st.spinner(f"🤖 Gemini AI가 '{selected_theme}' 테마 심층 분석 중..."):
+                with st.spinner(f"Gemini AI가 '{selected_theme}' 테마 심층 분석 중..."):
                     summary = summarize_with_gemini(selected_theme, news_tuple, mode="theme")
 
-                st.subheader(f"🧠 '{selected_theme}' 테마 심층 분석")
-                st.info(summary)
-                st.divider()
-
-                st.subheader(f"📰 수집된 뉴스 ({len(unique_news)}건)")
-                for i, news in enumerate(unique_news, 1):
-                    with st.expander(f"{i}. {news['title']}"):
-                        st.caption(f"🕒 {news.get('pubDate', '')}")
-                        st.write(news["description"])
-                        st.markdown(f"[🔗 원문 보기]({news['link']})")
+                render_summary(f"'{selected_theme}' 테마 심층 분석", summary)
+                render_news_list(unique_news)
 
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
-        st.success(f"✅ AI 모델: `{GEMINI_MODEL}`")
         kst_sidebar = get_kst_now()
-        st.caption(f"🕒 한국시간: {kst_sidebar.strftime('%Y-%m-%d %H:%M:%S')}")
-        st.header("📖 사용 방법")
-        st.markdown("""
-**🔍 종목명 검색 탭**
-1. 분석할 종목명 입력
-   예) `삼성전자`, `NAVER`, `현대차`
-2. 🔍 분석 버튼 클릭
-3. AI가 시장 동향 자동 요약
 
-**📅 오늘의 시장 동향 탭**
-1. 관심 키워드 선택
-2. 오늘 시장 동향 분석 클릭
-3. 오늘 날짜 기준 뉴스 AI 요약
+        st.markdown(f"""
+        <div class="sidebar-model"><span>Gemini 2.5 Flash</span></div>
+        <div class="sidebar-time">{kst_sidebar.strftime('%Y-%m-%d %H:%M:%S')} KST</div>
+        """, unsafe_allow_html=True)
 
-**📊 테마별 분석 탭**
-1. 카테고리 선택 (IT, 에너지, 바이오 등)
-2. 세부 테마 선택
-3. 테마 심층 분석 클릭
-4. AI가 호재/악재, 관련종목, 전망 분석
-""")
-        st.divider()
-        st.header("⚙️ 기술 스택")
         st.markdown("""
-- **UI**: Streamlit
-- **뉴스**: 네이버 검색 Open API
-- **AI**: Google Gemini 2.5 Flash
-""")
-        st.divider()
-        st.caption("⚠️ 본 서비스는 정보 제공 목적이며, 투자 권유가 아닙니다.")
+        <div class="sidebar-card">
+            <h4>&#128270; 종목 검색</h4>
+            <p>종목명 입력 &rarr; 분석 클릭 &rarr; AI 요약</p>
+        </div>
+        <div class="sidebar-card">
+            <h4>&#128197; 시장 동향</h4>
+            <p>키워드 선택/입력 &rarr; 동향 분석 &rarr; 오늘의 리포트</p>
+        </div>
+        <div class="sidebar-card">
+            <h4>&#128202; 테마 분석</h4>
+            <p>카테고리 &rarr; 테마 선택 &rarr; 심층 분석 리포트</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="sidebar-card">
+            <h4>&#9881; 기술 스택</h4>
+            <p>
+            <strong>UI</strong> &middot; Streamlit<br>
+            <strong>News</strong> &middot; Naver Search API<br>
+            <strong>AI</strong> &middot; Google Gemini 2.5 Flash
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("""
+        <div class="footer-notice">
+            &#9888; 본 서비스는 정보 제공 목적이며,<br>투자 권유가 아닙니다.
+        </div>
+        """, unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
