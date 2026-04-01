@@ -112,7 +112,36 @@ def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = 
 
     today_str = get_kst_today_str()
 
-    if mode == "today":
+    if mode == "theme":
+        prompt = f"""당신은 주식 시장 및 투자 테마 분석 전문가입니다.
+아래는 '{label}' 테마와 관련된 최신 뉴스 기사들입니다.
+
+{news_text}
+
+위 뉴스들을 바탕으로 '{label}' 테마에 대한 **심층 분석**을 다음 형식으로 작성해 주세요:
+
+### 📌 테마 개요
+- '{label}' 테마의 현재 시장 위치와 중요성을 2~3줄로 설명
+
+### 📈 핵심 동향
+- 최근 주요 뉴스에서 파악되는 핵심 트렌드 3~5가지를 불릿 포인트로 정리
+
+### 🏢 관련 주요 종목
+- 이 테마와 관련된 대표 종목들을 언급하고 최근 뉴스에서의 동향 설명
+
+### ⚡ 호재 vs 악재
+- **호재**: 긍정적 요인 정리
+- **악재**: 부정적 요인 및 리스크 정리
+
+### 🔮 향후 전망
+- 단기(1~2주) 및 중기(1~3개월) 전망을 간략히 서술
+
+### ⚠️ 투자 유의사항
+- 해당 테마 투자 시 주의할 점
+- 본 분석은 정보 제공 목적이며 투자 권유가 아님을 명시
+
+답변은 한국어로, 마크다운 형식으로 작성해 주세요."""
+    elif mode == "today":
         prompt = f"""당신은 주식 시장 및 경제 분석 전문가입니다.
 아래는 오늘({today_str}) 수집된 주요 뉴스 기사들입니다.
 
@@ -179,7 +208,7 @@ def main():
         st.warning("⚠️ Gemini API 키가 설정되지 않았습니다. secrets.toml을 확인하세요.")
         api_ok = False
 
-    tab1, tab2 = st.tabs(["🔍 종목명 검색", "📅 오늘의 시장 동향"])
+    tab1, tab2, tab3 = st.tabs(["🔍 종목명 검색", "📅 오늘의 시장 동향", "📊 테마별 분석"])
 
     # ════════════════════════════════
     # TAB 1: 종목 검색
@@ -275,6 +304,70 @@ def main():
                             st.write(news["description"])
                             st.markdown(f"[🔗 원문 보기]({news['link']})")
 
+    # ════════════════════════════════
+    # TAB 3: 테마별 분석
+    # ════════════════════════════════
+    with tab3:
+        st.subheader("📊 투자 테마별 심층 분석")
+        st.caption("관심 있는 투자 테마를 선택하면 관련 뉴스를 수집하고 AI가 심층 분석합니다.")
+
+        theme_categories = {
+            "🔋 에너지·소재": ["2차전지", "태양광", "원자력", "수소에너지", "희토류"],
+            "💻 IT·기술": ["반도체", "AI 인공지능", "클라우드", "로봇", "자율주행"],
+            "🏥 바이오·헬스": ["바이오", "제약", "헬스케어", "신약개발"],
+            "💰 금융·경제": ["금리", "환율", "부동산", "가상화폐", "IPO"],
+            "🌍 글로벌": ["미국증시", "중국경제", "유럽증시", "신흥국"],
+            "🏗️ 산업·인프라": ["조선", "방산", "건설", "항공우주"],
+        }
+
+        selected_category = st.selectbox(
+            "테마 카테고리 선택",
+            options=list(theme_categories.keys()),
+            key="theme_category",
+        )
+
+        selected_theme = st.selectbox(
+            "분석할 테마 선택",
+            options=theme_categories[selected_category],
+            key="theme_select",
+        )
+
+        theme_btn = st.button("📊 테마 심층 분석", use_container_width=True,
+                              disabled=not api_ok, key="theme_btn")
+
+        if theme_btn:
+            search_queries = [f"{selected_theme} 관련주", f"{selected_theme} 시장", f"{selected_theme} 전망"]
+            all_news = []
+            for q in search_queries:
+                with st.spinner(f"📡 '{q}' 뉴스 수집 중..."):
+                    news = fetch_naver_news(q, display=5)
+                    all_news.extend(news)
+
+            seen = set()
+            unique_news = []
+            for n in all_news:
+                if n["title"] not in seen:
+                    seen.add(n["title"])
+                    unique_news.append(n)
+
+            if not unique_news:
+                st.error("뉴스를 가져오지 못했습니다.")
+            else:
+                news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
+                with st.spinner(f"🤖 Gemini AI가 '{selected_theme}' 테마 심층 분석 중..."):
+                    summary = summarize_with_gemini(selected_theme, news_tuple, mode="theme")
+
+                st.subheader(f"🧠 '{selected_theme}' 테마 심층 분석")
+                st.info(summary)
+                st.divider()
+
+                st.subheader(f"📰 수집된 뉴스 ({len(unique_news)}건)")
+                for i, news in enumerate(unique_news, 1):
+                    with st.expander(f"{i}. {news['title']}"):
+                        st.caption(f"🕒 {news.get('pubDate', '')}")
+                        st.write(news["description"])
+                        st.markdown(f"[🔗 원문 보기]({news['link']})")
+
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
         st.success(f"✅ AI 모델: `{GEMINI_MODEL}`")
@@ -292,6 +385,12 @@ def main():
 1. 관심 키워드 선택
 2. 오늘 시장 동향 분석 클릭
 3. 오늘 날짜 기준 뉴스 AI 요약
+
+**📊 테마별 분석 탭**
+1. 카테고리 선택 (IT, 에너지, 바이오 등)
+2. 세부 테마 선택
+3. 테마 심층 분석 클릭
+4. AI가 호재/악재, 관련종목, 전망 분석
 """)
         st.divider()
         st.header("⚙️ 기술 스택")
