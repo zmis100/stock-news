@@ -115,7 +115,7 @@ def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
                 stocks = data.get("stocks", [])
                 if not stocks:
                     break
-                all_stocks.extend([(s, market) for s in stocks])
+                all_stocks.extend([(s, market) for s in stocks if s.get("stockEndType") == "stock"])
                 if page * 100 >= data.get("totalCount", 0):
                     break
                 page += 1
