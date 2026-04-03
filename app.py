@@ -101,7 +101,7 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def fetch_trading_volume_top(limit: int = 100) -> list[dict]:
+def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
     """KRX 전종목 거래대금 상위 종목 조회 (1시간 캐시)"""
     try:
         df = fdr.StockListing('KRX')
@@ -121,9 +121,9 @@ def fetch_trading_volume_top(limit: int = 100) -> list[dict]:
                 "amount": int(float(row["Amount"])),
                 "marcap": int(float(row["Marcap"])),
             })
-        return result
-    except Exception:
-        return []
+        return result, ""
+    except Exception as e:
+        return [], str(e)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -794,11 +794,13 @@ def main():
         if vol_btn:
             with st.status("KRX 거래대금 데이터 조회 중...", expanded=True) as status:
                 status.update(label="FinanceDataReader에서 전종목 데이터 수집 중...", state="running")
-                top_list = fetch_trading_volume_top(100)
+                top_list, err_msg = fetch_trading_volume_top(100)
 
                 if not top_list:
                     status.update(label="데이터 조회 실패", state="error")
                     st.error("거래대금 데이터를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+                    if err_msg:
+                        st.code(f"오류 내용: {err_msg}", language="text")
                 else:
                     data_label = "전일 장 마감 기준" if is_market_open else "최근 장 마감 기준"
                     st.write(f"✅ {len(top_list)}개 종목 거래대금 데이터 수집 완료 ({data_label})")
