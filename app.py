@@ -774,6 +774,21 @@ def main():
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
+        # 장 운영 시간 체크 (평일 09:00~15:30)
+        now_kst = get_kst_now()
+        is_weekday = now_kst.weekday() < 5  # 월~금
+        market_open = now_kst.replace(hour=9, minute=0, second=0, microsecond=0)
+        market_close = now_kst.replace(hour=15, minute=30, second=0, microsecond=0)
+        is_market_open = is_weekday and market_open <= now_kst <= market_close
+
+        if is_market_open:
+            st.warning(
+                "현재 장 운영 시간(09:00~15:30)입니다. "
+                "거래대금 데이터는 **전일 장 마감 기준**으로 제공되며, "
+                "당일 실시간 데이터는 지원되지 않습니다. "
+                "장 마감(15:30) 이후 조회하시면 당일 데이터를 확인할 수 있습니다."
+            )
+
         vol_btn = st.button("거래대금 TOP 100 조회", use_container_width=True, key="vol_btn")
 
         if vol_btn:
@@ -785,7 +800,8 @@ def main():
                     status.update(label="데이터 조회 실패", state="error")
                     st.error("거래대금 데이터를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.")
                 else:
-                    st.write(f"✅ {len(top_list)}개 종목 거래대금 데이터 수집 완료")
+                    data_label = "전일 장 마감 기준" if is_market_open else "최근 장 마감 기준"
+                    st.write(f"✅ {len(top_list)}개 종목 거래대금 데이터 수집 완료 ({data_label})")
                     status.update(label="조회 완료!", state="complete")
 
             if top_list:
