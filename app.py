@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from datetime import datetime, date, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
-import FinanceDataReader as fdr
 
 # ── 환경변수 로딩 ──────────────────────────────────────────────
 load_dotenv()
@@ -102,24 +101,46 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
-    """KRX 전종목 거래대금 상위 종목 조회 (1시간 캐시)"""
+    """네이버 금융 API로 KOSPI+KOSDAQ 거래대금 상위 종목 조회 (1시간 캐시)"""
     try:
-        df = fdr.StockListing('KRX')
-        df['Amount'] = df['Amount'].astype(float)
-        df = df[df['Amount'] > 0]
-        top = df.nlargest(limit, 'Amount')
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        all_stocks = []
+        for market in ["KOSPI", "KOSDAQ"]:
+            page = 1
+            while True:
+                url = f"https://m.stock.naver.com/api/stocks/marketValue/{market}?page={page}&pageSize=100"
+                r = requests.get(url, headers=headers, timeout=10)
+                r.raise_for_status()
+                data = r.json()
+                stocks = data.get("stocks", [])
+                if not stocks:
+                    break
+                all_stocks.extend([(s, market) for s in stocks])
+                if page * 100 >= data.get("totalCount", 0):
+                    break
+                page += 1
+
+        def parse_num(s):
+            try:
+                return int(str(s).replace(",", ""))
+            except Exception:
+                return 0
+
+        all_stocks.sort(key=lambda x: parse_num(x[0].get("accumulatedTradingValue", 0)), reverse=True)
+
         result = []
-        for _, row in top.iterrows():
+        for s, market in all_stocks[:limit]:
+            amount_mil = parse_num(s.get("accumulatedTradingValue", 0))
             result.append({
                 "rank": len(result) + 1,
-                "name": row["Name"],
-                "code": row["Code"],
-                "market": row["Market"],
-                "close": int(float(row["Close"])),
-                "change_ratio": round(float(row["ChagesRatio"]), 2),
-                "volume": int(float(row["Volume"])),
-                "amount": int(float(row["Amount"])),
-                "marcap": int(float(row["Marcap"])),
+                "name": s.get("stockName", ""),
+                "code": s.get("itemCode", ""),
+                "market": market,
+                "close": parse_num(s.get("closePrice", 0)),
+                "change_ratio": float(s.get("fluctuationsRatio", 0) or 0),
+                "volume": parse_num(s.get("accumulatedTradingVolume", 0)),
+                "amount": amount_mil * 1_000_000,
+                "marcap": parse_num(s.get("marketValue", 0)) * 1_000_000,
             })
         return result, ""
     except Exception as e:
