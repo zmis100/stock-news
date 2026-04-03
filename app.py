@@ -103,28 +103,49 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
 def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
     """네이버 금융 API로 KOSPI+KOSDAQ 거래대금 상위 종목 조회 (1시간 캐시)"""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        all_stocks = []
-        for market in ["KOSPI", "KOSDAQ"]:
-            page = 1
-            while True:
-                url = f"https://m.stock.naver.com/api/stocks/marketValue/{market}?page={page}&pageSize=100"
-                r = requests.get(url, headers=headers, timeout=10)
-                r.raise_for_status()
-                data = r.json()
-                stocks = data.get("stocks", [])
-                if not stocks:
-                    break
-                all_stocks.extend([(s, market) for s in stocks if s.get("stockEndType") == "stock"])
-                if page * 100 >= data.get("totalCount", 0):
-                    break
-                page += 1
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from requests.adapters import HTTPAdapter
+
+        session = requests.Session()
+        session.mount("https://", HTTPAdapter(pool_connections=20, pool_maxsize=20))
+        session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+
+        def fetch_page(market, page):
+            url = f"https://m.stock.naver.com/api/stocks/marketValue/{market}?page={page}&pageSize=100"
+            r = session.get(url, timeout=10)
+            r.raise_for_status()
+            data = r.json()
+            return market, data.get("stocks", []), data.get("totalCount", 0)
 
         def parse_num(s):
             try:
                 return int(str(s).replace(",", ""))
             except Exception:
                 return 0
+
+        # 1단계: 첫 페이지 2개 동시 요청으로 totalCount 파악
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            futures = {ex.submit(fetch_page, m, 1): m for m in ["KOSPI", "KOSDAQ"]}
+            first = {}
+            for f in as_completed(futures):
+                market, stocks, total = f.result()
+                first[market] = (stocks, total)
+
+        # 2단계: 나머지 전 페이지 병렬 요청
+        tasks = [
+            (market, p)
+            for market, (_, total) in first.items()
+            for p in range(2, (total + 99) // 100 + 1)
+        ]
+        all_stocks = [
+            (s, m) for m, (stocks, _) in first.items()
+            for s in stocks if s.get("stockEndType") == "stock"
+        ]
+        with ThreadPoolExecutor(max_workers=10) as ex:
+            futures = {ex.submit(fetch_page, m, p): (m, p) for m, p in tasks}
+            for f in as_completed(futures):
+                market, stocks, _ = f.result()
+                all_stocks.extend([(s, market) for s in stocks if s.get("stockEndType") == "stock"])
 
         all_stocks.sort(key=lambda x: parse_num(x[0].get("accumulatedTradingValue", 0)), reverse=True)
 
