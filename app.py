@@ -340,6 +340,82 @@ def fetch_realtime_top_gainers(limit: int = 30) -> list[dict]:
     return all_stocks[:limit]
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_realtime_top_volume(limit: int = 50) -> list[dict]:
+    """
+    네이버 금융 HTML 스크래핑 - 실시간 거래대금 상위.
+    상승률(sise_rise) + 하락률(sise_fall) 페이지를 합쳐서 거래대금 desc 정렬.
+    돈이 몰린 종목 = 등락률 무관하게 거래대금 큰 종목.
+    """
+    from bs4 import BeautifulSoup
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    pages = [
+        ("sise_rise.naver", "0", "KOSPI"),
+        ("sise_rise.naver", "1", "KOSDAQ"),
+        ("sise_fall.naver", "0", "KOSPI"),
+        ("sise_fall.naver", "1", "KOSDAQ"),
+    ]
+
+    all_stocks = []
+    for url_path, sosok, market in pages:
+        try:
+            url = f"https://finance.naver.com/sise/{url_path}?sosok={sosok}"
+            r = requests.get(url, headers=headers, timeout=8)
+            r.encoding = "euc-kr"
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for row in soup.select("table.type_2 tr"):
+                cols = row.select("td")
+                if len(cols) < 10:
+                    continue
+
+                a_tag = cols[1].select_one("a.tltle")
+                if not a_tag:
+                    continue
+
+                try:
+                    name   = a_tag.text.strip()
+                    href   = a_tag.get("href", "")
+                    code   = href.split("code=")[-1] if "code=" in href else ""
+                    price  = int(cols[2].text.strip().replace(",", ""))
+                    chg    = float(cols[4].text.strip().replace("%", "").replace("+", ""))
+                    volume = int(cols[5].text.strip().replace(",", ""))
+                    amt_m  = int(cols[6].text.strip().replace(",", ""))  # 백만원 단위
+                except (ValueError, IndexError):
+                    continue
+
+                all_stocks.append({
+                    "name":         name,
+                    "code":         code,
+                    "market":       market,
+                    "current":      price,
+                    "change_ratio": chg,
+                    "volume":       volume,
+                    "amount":       amt_m * 1_000_000,
+                })
+        except Exception:
+            continue
+
+    # 중복 제거 (code 기준 - 여러 페이지에 동일 종목 포함될 수 있음)
+    seen = set()
+    unique = []
+    for s in all_stocks:
+        if s["code"] and s["code"] not in seen:
+            seen.add(s["code"])
+            unique.append(s)
+
+    # 거래대금 desc 정렬
+    unique.sort(key=lambda x: x["amount"], reverse=True)
+    for i, s in enumerate(unique[:limit], 1):
+        s["display_rank"] = i
+    return unique[:limit]
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_feature_stocks_postclose(min_change: float = 5.0, min_amount_eok: int = 100, limit: int = 30) -> list[dict]:
     """
@@ -1281,31 +1357,48 @@ def main():
 
         # ── BET-TAB1: 특징주 (실시간 vs 마감 후 옵션) ──
         with bet_tab1:
-            data_source = st.radio(
-                "데이터 소스",
-                options=["🔴 실시간 (네이버 스크래핑)", "🟢 장 마감 후 (안정적)"],
-                horizontal=True,
-                key="feature_source",
-                help="실시간: 장중에도 동작 (네이버 금융 HTML). 장 마감 후: 거래대금 API 기반",
-            )
-            st.caption("기준: 등락률 +5% 이상 · 최대 30개 표시")
+            col_src, col_sort = st.columns(2)
+            with col_src:
+                data_source = st.radio(
+                    "데이터 소스",
+                    options=["🔴 실시간", "🟢 장 마감 후"],
+                    key="feature_source",
+                    help="실시간: 네이버 금융 HTML 스크래핑 (장중 동작). 장 마감 후: 거래대금 API",
+                )
+            with col_sort:
+                sort_mode = st.radio(
+                    "정렬 기준",
+                    options=["💰 거래대금 순", "🔥 등락률 순"],
+                    key="feature_sort",
+                    help="거래대금 순: 돈이 몰린 종목 (종가베팅용). 등락률 순: +5% 이상 급등주",
+                )
+            st.caption("최대 50개 표시")
 
             feat_btn = st.button("특징주 조회", use_container_width=True, key="feat_btn")
             if feat_btn:
                 with st.spinner("특징주 수집 중..."):
-                    if data_source.startswith("🔴"):
-                        # 실시간 - 네이버 스크래핑
-                        feature_list = [
-                            s for s in fetch_realtime_top_gainers(50)
-                            if s["change_ratio"] >= 5.0
-                        ][:30]
-                        source_label = "실시간 (네이버)"
+                    is_realtime = data_source.startswith("🔴")
+                    is_volume = sort_mode.startswith("💰")
+
+                    if is_realtime and is_volume:
+                        feature_list = fetch_realtime_top_volume(50)
+                        source_label = "실시간 / 거래대금 순"
+                    elif is_realtime and not is_volume:
+                        feature_list = fetch_realtime_top_gainers(50)
+                        source_label = "실시간 / 등락률 순"
+                    elif not is_realtime and is_volume:
+                        # 장 마감 후 + 거래대금 순 (이미 거래대금 desc로 옴)
+                        all_stocks, _ = fetch_trading_volume_top(50)
+                        feature_list = all_stocks
+                        for i, s in enumerate(feature_list, 1):
+                            s["display_rank"] = i
+                        source_label = "장 마감 후 / 거래대금 순"
                     else:
-                        feature_list = fetch_feature_stocks_postclose(min_change=5.0, limit=30)
-                        source_label = "장 마감 후"
+                        feature_list = fetch_feature_stocks_postclose(min_change=5.0, limit=50)
+                        source_label = "장 마감 후 / 등락률 순"
 
                 if not feature_list:
-                    st.warning("등락률 +5% 이상 특징주가 없습니다.")
+                    st.warning("조건에 맞는 특징주가 없습니다.")
                 else:
                     st.success(f"✅ {len(feature_list)}개 특징주 ({source_label})")
                     # 세션에 저장 → AI 분석 탭에서 재사용
@@ -1315,6 +1408,8 @@ def main():
                     for s in feature_list:
                         chg = s["change_ratio"]
                         amt_eok = s["amount"] / 1e8
+                        chg_color = "#ef4444" if chg > 0 else "#3b82f6" if chg < 0 else "rgba(255,255,255,0.5)"
+                        chg_sign = "+" if chg > 0 else ""
                         st.markdown(f"""
                         <div class="news-card" style="display:flex; justify-content:space-between; align-items:center;">
                             <div style="flex:1;">
@@ -1325,7 +1420,7 @@ def main():
                             <div style="display:flex; gap:1.2rem;">
                                 <span style="color:#e2e8f0;">{s.get('current', 0):,}원</span>
                                 <span style="color:#e2e8f0;">{amt_eok:,.0f}억</span>
-                                <span style="color:#ef4444; font-weight:600;">+{chg:.2f}%</span>
+                                <span style="color:{chg_color}; font-weight:600;">{chg_sign}{chg:.2f}%</span>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
