@@ -874,7 +874,7 @@ def render_keyword_chips(keywords: list[str]):
 
 
 def render_world_index_card(idx: dict):
-    """네이버 스타일 세계 증시 카드 (지수명/현재가/등락률 + 미니 차트)"""
+    """네이버 스타일 세계 증시 카드 (그리드용 컴팩트 버전)"""
     name       = idx["name"]
     current    = idx["current"]
     change     = idx["change"]
@@ -887,26 +887,22 @@ def render_world_index_card(idx: dict):
     arrow      = "▲" if is_up else "▼"
     sign       = "+" if is_up else ""
 
-    # 카드 헤더 (지수명 + 현재가 + 등락)
+    # 컴팩트 카드 헤더
     st.markdown(f"""
     <div style="background:rgba(255,255,255,0.04);
                 border:1px solid rgba(255,255,255,0.08);
-                border-radius:14px;
-                padding:1rem 1.2rem 0.4rem 1.2rem;
-                margin-top:0.8rem;">
-        <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:0.3rem;">
-            <span style="color:#e2e8f0; font-weight:600; font-size:1.05rem;">{name}</span>
-            <span style="color:{color}; font-weight:700; font-size:1.25rem;">
-                {current:,.2f}
-                <span style="font-size:0.82rem; font-weight:600; margin-left:0.4rem;">
-                    {arrow} {abs(change):,.2f} ({sign}{change_pct:.2f}%)
-                </span>
-            </span>
+                border-radius:12px;
+                padding:0.7rem 0.9rem 0.2rem 0.9rem;
+                margin-top:0.4rem;">
+        <div style="color:#e2e8f0; font-weight:600; font-size:0.85rem; margin-bottom:0.2rem;">{name}</div>
+        <div style="color:{color}; font-weight:700; font-size:1.05rem;">{current:,.2f}</div>
+        <div style="color:{color}; font-weight:600; font-size:0.75rem;">
+            {arrow} {abs(change):,.2f} ({sign}{change_pct:.2f}%)
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # 미니 차트 (plotly area chart)
+    # 미니 차트 (plotly area chart) - 컴팩트
     if prices:
         fig = go.Figure()
         fig.add_trace(go.Scatter(
@@ -914,7 +910,7 @@ def render_world_index_card(idx: dict):
             y=prices,
             mode="lines",
             fill="tozeroy",
-            line=dict(color=color, width=1.8),
+            line=dict(color=color, width=1.5),
             fillcolor=fill_color,
             hovertemplate="%{y:,.2f}<extra></extra>",
         ))
@@ -922,16 +918,12 @@ def render_world_index_card(idx: dict):
         margin = (ymax - ymin) * 0.15 if ymax > ymin else max(ymax * 0.001, 1)
         fig.update_yaxes(
             range=[ymin - margin, ymax + margin],
-            showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)",
-            tickfont=dict(color="rgba(255,255,255,0.4)", size=9),
-            side="right",
-            tickformat=",.0f",
+            visible=False,
         )
         fig.update_xaxes(visible=False)
         fig.update_layout(
-            height=130,
-            margin=dict(l=0, r=0, t=4, b=0),
+            height=70,
+            margin=dict(l=0, r=0, t=0, b=0),
             showlegend=False,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
@@ -1184,7 +1176,17 @@ def main():
             '미국 / 한국 / 아시아 주요 지수 (5분 캐시 · yfinance)</p>',
             unsafe_allow_html=True,
         )
-        world_btn = st.button("새로고침", use_container_width=True, key="world_refresh_btn")
+
+        col_filter, col_refresh = st.columns([3, 1])
+        with col_filter:
+            region_filter = st.selectbox(
+                "지역 필터",
+                options=["🌐 전체", "🇺🇸 미국", "🇰🇷 한국", "🌏 아시아"],
+                key="world_region_filter",
+                label_visibility="collapsed",
+            )
+        with col_refresh:
+            world_btn = st.button("🔄 새로고침", use_container_width=True, key="world_refresh_btn")
 
         if world_btn:
             fetch_world_indices.clear()
@@ -1204,29 +1206,40 @@ def main():
             kr_group    = [d for d in world_data if d["name"] in kr_names]
             asia_group  = [d for d in world_data if d["name"] in asia_names]
 
-            if us_group:
-                st.markdown(
-                    '<div class="section-title">&#127482;&#127480; 미국 증시</div>',
-                    unsafe_allow_html=True,
-                )
-                for idx in us_group:
-                    render_world_index_card(idx)
+            def render_grid(items: list, cols: int = 3):
+                """N개 카드를 N열 그리드로 렌더링"""
+                for i in range(0, len(items), cols):
+                    row = items[i:i + cols]
+                    col_objs = st.columns(cols)
+                    for j, item in enumerate(row):
+                        with col_objs[j]:
+                            render_world_index_card(item)
 
-            if kr_group:
-                st.markdown(
-                    '<div class="section-title">&#127472;&#127479; 한국 증시</div>',
-                    unsafe_allow_html=True,
-                )
-                for idx in kr_group:
-                    render_world_index_card(idx)
+            show_all = region_filter == "🌐 전체"
 
-            if asia_group:
-                st.markdown(
-                    '<div class="section-title">&#127759; 아시아 증시</div>',
-                    unsafe_allow_html=True,
-                )
-                for idx in asia_group:
-                    render_world_index_card(idx)
+            if show_all or "미국" in region_filter:
+                if us_group:
+                    st.markdown(
+                        '<div class="section-title" style="font-size:1rem; margin:1rem 0 0.3rem 0;">&#127482;&#127480; 미국 증시</div>',
+                        unsafe_allow_html=True,
+                    )
+                    render_grid(us_group, cols=3)
+
+            if show_all or "한국" in region_filter:
+                if kr_group:
+                    st.markdown(
+                        '<div class="section-title" style="font-size:1rem; margin:1rem 0 0.3rem 0;">&#127472;&#127479; 한국 증시</div>',
+                        unsafe_allow_html=True,
+                    )
+                    render_grid(kr_group, cols=2)
+
+            if show_all or "아시아" in region_filter:
+                if asia_group:
+                    st.markdown(
+                        '<div class="section-title" style="font-size:1rem; margin:1rem 0 0.3rem 0;">&#127759; 아시아 증시</div>',
+                        unsafe_allow_html=True,
+                    )
+                    render_grid(asia_group, cols=3)
 
     # ════════════════════════════════
     # TAB 6: 오후 시황 & 종가베팅
