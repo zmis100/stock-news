@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 from datetime import datetime, date, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google import genai
+import yfinance as yf
+import plotly.graph_objects as go
 
 # ── 환경변수 로딩 ──────────────────────────────────────────────
 load_dotenv()
@@ -166,6 +168,60 @@ def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
         return result, ""
     except Exception as e:
         return [], str(e)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_world_indices() -> list[dict]:
+    """주요 세계 증시 지수 조회 (5분 캐시) - yfinance 기반"""
+    indices = [
+        {"name": "다우산업",   "ticker": "^DJI"},
+        {"name": "나스닥종합", "ticker": "^IXIC"},
+        {"name": "S&P 500",    "ticker": "^GSPC"},
+        {"name": "코스피",     "ticker": "^KS11"},
+        {"name": "코스닥",     "ticker": "^KQ11"},
+        {"name": "닛케이225",  "ticker": "^N225"},
+        {"name": "상해종합",   "ticker": "000001.SS"},
+        {"name": "항셍",       "ticker": "^HSI"},
+    ]
+
+    def fetch_one(item):
+        try:
+            t = yf.Ticker(item["ticker"])
+            # 일봉 5일치로 전일 종가 확보
+            daily = t.history(period="5d", interval="1d")
+            if len(daily) < 2:
+                return None
+            prev_close = float(daily["Close"].iloc[-2])
+
+            # 분봉 1일치로 인트라데이 차트 확보
+            intraday = t.history(period="1d", interval="5m")
+            if not intraday.empty:
+                current = float(intraday["Close"].iloc[-1])
+                chart_prices = [float(p) for p in intraday["Close"].tolist()]
+            else:
+                # 분봉이 없으면 일봉으로 폴백
+                current = float(daily["Close"].iloc[-1])
+                chart_prices = [float(p) for p in daily["Close"].tolist()]
+
+            change = current - prev_close
+            change_pct = (change / prev_close) * 100 if prev_close else 0.0
+
+            return {
+                "name":         item["name"],
+                "ticker":       item["ticker"],
+                "current":      current,
+                "prev_close":   prev_close,
+                "change":       change,
+                "change_pct":   change_pct,
+                "chart_prices": chart_prices,
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        results = list(ex.map(fetch_one, indices))
+
+    return [r for r in results if r is not None]
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -608,6 +664,73 @@ def render_keyword_chips(keywords: list[str]):
     st.markdown(f'<div class="keyword-chips">{chips}</div>', unsafe_allow_html=True)
 
 
+def render_world_index_card(idx: dict):
+    """네이버 스타일 세계 증시 카드 (지수명/현재가/등락률 + 미니 차트)"""
+    name       = idx["name"]
+    current    = idx["current"]
+    change     = idx["change"]
+    change_pct = idx["change_pct"]
+    prices     = idx["chart_prices"]
+
+    is_up = change >= 0
+    color      = "#ef4444" if is_up else "#3b82f6"  # 한국식: 상승 빨강 / 하락 파랑
+    fill_color = "rgba(239,68,68,0.18)" if is_up else "rgba(59,130,246,0.18)"
+    arrow      = "▲" if is_up else "▼"
+    sign       = "+" if is_up else ""
+
+    # 카드 헤더 (지수명 + 현재가 + 등락)
+    st.markdown(f"""
+    <div style="background:rgba(255,255,255,0.04);
+                border:1px solid rgba(255,255,255,0.08);
+                border-radius:14px;
+                padding:1rem 1.2rem 0.4rem 1.2rem;
+                margin-top:0.8rem;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:0.3rem;">
+            <span style="color:#e2e8f0; font-weight:600; font-size:1.05rem;">{name}</span>
+            <span style="color:{color}; font-weight:700; font-size:1.25rem;">
+                {current:,.2f}
+                <span style="font-size:0.82rem; font-weight:600; margin-left:0.4rem;">
+                    {arrow} {abs(change):,.2f} ({sign}{change_pct:.2f}%)
+                </span>
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 미니 차트 (plotly area chart)
+    if prices:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=list(range(len(prices))),
+            y=prices,
+            mode="lines",
+            fill="tozeroy",
+            line=dict(color=color, width=1.8),
+            fillcolor=fill_color,
+            hovertemplate="%{y:,.2f}<extra></extra>",
+        ))
+        ymin, ymax = min(prices), max(prices)
+        margin = (ymax - ymin) * 0.15 if ymax > ymin else max(ymax * 0.001, 1)
+        fig.update_yaxes(
+            range=[ymin - margin, ymax + margin],
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+            tickfont=dict(color="rgba(255,255,255,0.4)", size=9),
+            side="right",
+            tickformat=",.0f",
+        )
+        fig.update_xaxes(visible=False)
+        fig.update_layout(
+            height=130,
+            margin=dict(l=0, r=0, t=4, b=0),
+            showlegend=False,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            hovermode="x unified",
+        )
+        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+
 def main():
     st.set_page_config(
         page_title="Stock News AI Analyzer",
@@ -627,7 +750,9 @@ def main():
         st.warning("Gemini API 키가 설정되지 않았습니다.")
         api_ok = False
 
-    tab1, tab2, tab3, tab4 = st.tabs(["  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  "])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  ", "  세계 증시  "
+    ])
 
     # ════════════════════════════════
     # TAB 1: 종목 검색
@@ -913,6 +1038,65 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
 
+    # ════════════════════════════════
+    # TAB 5: 세계 증시 현황
+    # ════════════════════════════════
+    with tab5:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-title">&#127760; 세계 주요 증시 현황</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p style="color:rgba(255,255,255,0.5); font-size:0.85rem; margin-top:-0.5rem;">'
+            '미국 / 한국 / 아시아 주요 지수 (5분 캐시 · yfinance)</p>',
+            unsafe_allow_html=True,
+        )
+        world_btn = st.button("새로고침", use_container_width=True, key="world_refresh_btn")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        if world_btn:
+            fetch_world_indices.clear()
+
+        with st.spinner("세계 증시 데이터 수집 중..."):
+            world_data = fetch_world_indices()
+
+        if not world_data:
+            st.error("데이터를 가져오지 못했습니다. 잠시 후 다시 시도해 주세요.")
+        else:
+            # 미국 / 한국 / 아시아 그룹핑
+            us_names    = {"다우산업", "나스닥종합", "S&P 500"}
+            kr_names    = {"코스피", "코스닥"}
+            asia_names  = {"닛케이225", "상해종합", "항셍"}
+
+            us_group    = [d for d in world_data if d["name"] in us_names]
+            kr_group    = [d for d in world_data if d["name"] in kr_names]
+            asia_group  = [d for d in world_data if d["name"] in asia_names]
+
+            if us_group:
+                st.markdown(
+                    '<div class="section-title">&#127482;&#127480; 미국 증시</div>',
+                    unsafe_allow_html=True,
+                )
+                for idx in us_group:
+                    render_world_index_card(idx)
+
+            if kr_group:
+                st.markdown(
+                    '<div class="section-title">&#127472;&#127479; 한국 증시</div>',
+                    unsafe_allow_html=True,
+                )
+                for idx in kr_group:
+                    render_world_index_card(idx)
+
+            if asia_group:
+                st.markdown(
+                    '<div class="section-title">&#127759; 아시아 증시</div>',
+                    unsafe_allow_html=True,
+                )
+                for idx in asia_group:
+                    render_world_index_card(idx)
+
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
         kst_sidebar = get_kst_now()
@@ -938,6 +1122,10 @@ def main():
         <div class="sidebar-card">
             <h4>&#128293; 거래대금</h4>
             <p>KRX 전종목 거래대금 TOP 100 실시간 조회</p>
+        </div>
+        <div class="sidebar-card">
+            <h4>&#127760; 세계 증시</h4>
+            <p>미국·한국·아시아 주요 지수 실시간 차트</p>
         </div>
         """, unsafe_allow_html=True)
 
