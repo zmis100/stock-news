@@ -22,7 +22,60 @@ NAVER_CLIENT_ID     = get_secret("NAVER_CLIENT_ID")
 NAVER_CLIENT_SECRET = get_secret("NAVER_CLIENT_SECRET")
 GEMINI_API_KEY      = get_secret("GEMINI_API_KEY")
 
-GEMINI_MODEL = "models/gemini-2.5-flash-lite"
+GEMINI_MODEL = "models/gemini-2.5-flash-lite"  # (legacy - 폴백 체인으로 대체됨)
+
+# ── Gemini 모델 폴백 체인 (1순위: 최고 품질 → 4순위: free tier 너그러움) ──
+GEMINI_MODELS = [
+    {"id": "models/gemini-2.5-pro",        "label": "Gemini 2.5 Pro 🏆"},
+    {"id": "models/gemini-2.5-flash",      "label": "Gemini 2.5 Flash ⚡"},
+    {"id": "models/gemini-2.5-flash-lite", "label": "Gemini 2.5 Flash Lite 💨"},
+    {"id": "models/gemini-2.0-flash",      "label": "Gemini 2.0 Flash 🆓"},
+]
+
+# 폴백 트리거가 되는 에러 키워드 (대소문자 무시)
+_GEMINI_FALLBACK_KEYWORDS = (
+    "429", "quota", "resource_exhausted", "rate limit",
+    "exceeded", "unavailable", "503",
+)
+
+
+def call_gemini_with_fallback(prompt: str) -> tuple[str, str]:
+    """
+    Gemini 모델 폴백 체인 호출.
+    상위 모델부터 차례로 시도하다가 quota/rate-limit 에러 나면 다음 모델로 자동 폴백.
+
+    Returns:
+        (응답 텍스트, 사용된 모델 라벨)
+    """
+    if not GEMINI_API_KEY:
+        return "❌ GEMINI_API_KEY가 설정되지 않았습니다.", "N/A"
+
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        return f"❌ Gemini 클라이언트 초기화 실패: {e}", "FAILED"
+
+    error_log = []
+    for m in GEMINI_MODELS:
+        try:
+            resp = client.models.generate_content(model=m["id"], contents=prompt)
+            if resp and resp.text:
+                return resp.text, m["label"]
+            error_log.append(f"• {m['label']}: 빈 응답")
+        except Exception as e:
+            err_str = str(e).lower()
+            error_log.append(f"• {m['label']}: {str(e)[:120]}")
+            if any(k in err_str for k in _GEMINI_FALLBACK_KEYWORDS):
+                continue
+            # 그 외 에러도 일단 다음 모델 시도 (네트워크 일시 장애 등)
+            continue
+
+    fail_msg = (
+        "❌ 모든 Gemini 모델 호출 실패\n\n"
+        "**시도 내역:**\n" + "\n".join(error_log) + "\n\n"
+        "잠시 후 다시 시도하거나 [Google AI Studio](https://aistudio.google.com/app/apikey)에서 API 키를 확인하세요."
+    )
+    return fail_msg, "FAILED"
 
 # ── 한국 시간 동적 계산 ────────────────────────────────────────
 KST = timezone(timedelta(hours=9))
@@ -101,7 +154,7 @@ def fetch_multiple_keywords(keywords: list[str], display: int = 5) -> list[dict]
     return unique
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_trading_volume_top(limit: int = 100) -> tuple[list[dict], str]:
     """네이버 금융 API로 KOSPI+KOSDAQ 거래대금 상위 종목 조회 (1시간 캐시)"""
     try:
@@ -224,11 +277,171 @@ def fetch_world_indices() -> list[dict]:
     return [r for r in results if r is not None]
 
 
+# ══════════════════════════════════════════════════════════════
+# 종가베팅용 데이터 함수들
+# ══════════════════════════════════════════════════════════════
+
+@st.cache_data(ttl=120, show_spinner=False)
+def fetch_realtime_top_gainers(limit: int = 30) -> list[dict]:
+    """
+    네이버 금융 HTML 스크래핑 - 실시간 등락률 상위 (KOSPI + KOSDAQ)
+    장중에도 실시간으로 갱신됨. 2분 캐시.
+    """
+    from bs4 import BeautifulSoup
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    all_stocks = []
+    for sosok, market in [("0", "KOSPI"), ("1", "KOSDAQ")]:
+        try:
+            url = f"https://finance.naver.com/sise/sise_rise.naver?sosok={sosok}"
+            r = requests.get(url, headers=headers, timeout=8)
+            r.encoding = "euc-kr"
+            soup = BeautifulSoup(r.text, "html.parser")
+
+            for row in soup.select("table.type_2 tr"):
+                cols = row.select("td")
+                if len(cols) < 10:
+                    continue
+
+                a_tag = cols[1].select_one("a.tltle")
+                if not a_tag:
+                    continue
+
+                try:
+                    name   = a_tag.text.strip()
+                    href   = a_tag.get("href", "")
+                    code   = href.split("code=")[-1] if "code=" in href else ""
+                    price  = int(cols[2].text.strip().replace(",", ""))
+                    chg    = float(cols[4].text.strip().replace("%", "").replace("+", ""))
+                    volume = int(cols[5].text.strip().replace(",", ""))
+                    amt_m  = int(cols[6].text.strip().replace(",", ""))  # 백만원 단위
+                except (ValueError, IndexError):
+                    continue
+
+                all_stocks.append({
+                    "name":         name,
+                    "code":         code,
+                    "market":       market,
+                    "current":      price,
+                    "change_ratio": chg,
+                    "volume":       volume,
+                    "amount":       amt_m * 1_000_000,
+                })
+        except Exception:
+            continue
+
+    all_stocks.sort(key=lambda x: x["change_ratio"], reverse=True)
+    for i, s in enumerate(all_stocks[:limit], 1):
+        s["display_rank"] = i
+    return all_stocks[:limit]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_feature_stocks_postclose(min_change: float = 5.0, min_amount_eok: int = 100, limit: int = 30) -> list[dict]:
+    """
+    장 마감 후 기준 특징주.
+    fetch_trading_volume_top()의 결과를 등락률+거래대금 기준으로 필터링.
+    """
+    all_stocks, _ = fetch_trading_volume_top(200)
+    if not all_stocks:
+        return []
+
+    min_amount = min_amount_eok * 100_000_000
+    feature = [
+        s for s in all_stocks
+        if s["change_ratio"] >= min_change and s["amount"] >= min_amount
+    ]
+    feature.sort(key=lambda x: x["change_ratio"], reverse=True)
+    for i, s in enumerate(feature[:limit], 1):
+        s["display_rank"] = i
+    return feature[:limit]
+
+
+def fetch_news_per_stock(stocks: list[dict], display: int = 3) -> dict[str, list[dict]]:
+    """특징주 각각의 최신 뉴스를 병렬 수집"""
+    result: dict[str, list[dict]] = {}
+    if not stocks:
+        return result
+    with ThreadPoolExecutor(max_workers=min(len(stocks), 8)) as ex:
+        futures = {
+            ex.submit(fetch_naver_news, s["name"], display): s["name"]
+            for s in stocks
+        }
+        for f in as_completed(futures):
+            name = futures[f]
+            try:
+                result[name] = f.result()
+            except Exception:
+                result[name] = []
+    return result
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def analyze_closing_bet(stocks_tuple: tuple, news_tuple: tuple) -> tuple[str, str]:
+    """
+    종가베팅 관점 LLM 분석 (10분 캐시).
+    stocks_tuple: ((name, code, change_ratio, amount_eok), ...)
+    news_tuple:   ((name, ((title, desc), ...)), ...)
+    Returns: (분석텍스트, 사용모델라벨)
+    """
+    if not stocks_tuple:
+        return "분석할 특징주가 없습니다.", "N/A"
+
+    stocks_summary = "\n".join([
+        f"- {name} ({code}): +{ratio:.2f}%, 거래대금 {amt:,.0f}억"
+        for name, code, ratio, amt in stocks_tuple
+    ])
+
+    news_block = ""
+    for name, items in news_tuple:
+        if not items:
+            continue
+        news_block += f"\n■ {name}\n"
+        for title, desc in items:
+            news_block += f"  · {title}\n    {desc[:120]}\n"
+
+    now_str = get_kst_now().strftime("%H:%M")
+
+    prompt = f"""당신은 한국 주식 단타/종가베팅 전문가입니다.
+현재 시각: {now_str} KST (장 마감 임박)
+
+## 오늘의 거래대금 + 상승률 상위 특징주
+{stocks_summary}
+
+## 각 종목 최신 뉴스
+{news_block}
+
+위 데이터를 바탕으로 **종가베팅 관점**에서 분석해 주세요.
+
+### 🔥 오늘의 주도 테마 TOP 3
+- **1순위 테마**: 핵심 대장주(들)와 1줄 근거
+- **2순위 테마**: 동일 형식
+- **3순위 테마**: 동일 형식
+
+### 📊 특징주 상승 사유
+- 종목별로 핵심 모멘텀(뉴스/이슈) 1~2줄
+
+### 🎯 종가베팅 코멘트
+- 장 막판 주목할만한 종목 (모멘텀·수급 관점)
+- 주의해야 할 리스크 (오버행, 단기과열, 재료 노출 등)
+
+### ⚠️ 면책
+본 분석은 정보 제공용이며 투자 권유가 아닙니다.
+
+답변은 한국어 마크다운으로 작성해 주세요."""
+
+    return call_gemini_with_fallback(prompt)
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
-def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = "stock") -> str:
-    """Gemini API 호출 (1시간 캐시, 같은 뉴스면 재호출 안함)"""
+def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = "stock") -> tuple[str, str]:
+    """Gemini API 호출 (1시간 캐시, 같은 뉴스면 재호출 안함). (요약, 사용모델) 튜플 반환."""
     if not news_titles_and_descs:
-        return "요약할 뉴스 기사가 없습니다."
+        return "요약할 뉴스 기사가 없습니다.", "N/A"
 
     news_text = "\n\n".join([
         f"[기사 {i+1}]\n제목: {title}\n내용: {desc}"
@@ -298,19 +511,7 @@ def summarize_with_gemini(label: str, news_titles_and_descs: tuple, mode: str = 
 
 답변은 한국어로, 마크다운 형식으로 작성해 주세요."""
 
-    try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-        )
-        return response.text
-    except Exception as e:
-        return (
-            f"❌ Gemini API 호출 실패\n\n"
-            f"**오류:** {e}\n\n"
-            f"[Google AI Studio](https://aistudio.google.com/app/apikey)에서 API 키를 확인하세요."
-        )
+    return call_gemini_with_fallback(prompt)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -626,11 +827,19 @@ def render_hero():
     """, unsafe_allow_html=True)
 
 
-def render_summary(title: str, content: str):
-    """AI 요약 결과를 프리미엄 카드로 렌더링"""
+def render_summary(title: str, content: str, used_model: str = ""):
+    """AI 요약 결과를 프리미엄 카드로 렌더링 (+ 사용된 모델 배지)"""
     st.markdown(f'<div class="section-title">&#129504; {title}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="summary-card">', unsafe_allow_html=True)
     st.markdown(content)
+    if used_model and used_model not in ("N/A", "FAILED"):
+        st.markdown(
+            f'<div style="margin-top:1rem; padding-top:0.8rem; '
+            f'border-top:1px solid rgba(255,255,255,0.08); '
+            f'color:rgba(255,255,255,0.45); font-size:0.75rem; text-align:right;">'
+            f'분석 모델: <strong style="color:#a78bfa;">{used_model}</strong></div>',
+            unsafe_allow_html=True,
+        )
     st.markdown('</div>', unsafe_allow_html=True)
 
 
@@ -750,8 +959,8 @@ def main():
         st.warning("Gemini API 키가 설정되지 않았습니다.")
         api_ok = False
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  ", "  세계 증시  "
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  ", "  세계 증시  ", "  🎯 종가베팅  "
     ])
 
     # ════════════════════════════════
@@ -787,12 +996,12 @@ def main():
                     st.write(f"✅ 뉴스 {len(news_list)}건 수집 완료")
                     status.update(label="Gemini AI가 핵심을 분석 중입니다...", state="running")
                     news_tuple = tuple((n["title"], n["description"]) for n in news_list)
-                    summary = summarize_with_gemini(stock_name, news_tuple, mode="stock")
-                    st.write("✅ AI 분석 완료")
+                    summary, used_model = summarize_with_gemini(stock_name, news_tuple, mode="stock")
+                    st.write(f"✅ AI 분석 완료 ({used_model})")
                     status.update(label="분석 완료!", state="complete")
 
             if news_list:
-                render_summary(f"AI 시장 동향 요약 -- {stock_name}", summary)
+                render_summary(f"AI 시장 동향 요약 -- {stock_name}", summary, used_model)
                 render_news_list(news_list)
 
         elif search_btn and not stock_name.strip():
@@ -845,14 +1054,14 @@ def main():
                         st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
                         status.update(label="Gemini AI가 오늘의 시장을 분석 중입니다...", state="running")
                         news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                        summary = summarize_with_gemini(
+                        summary, used_model = summarize_with_gemini(
                             ", ".join(keywords), news_tuple, mode="today"
                         )
-                        st.write("✅ AI 분석 완료")
+                        st.write(f"✅ AI 분석 완료 ({used_model})")
                         status.update(label="분석 완료!", state="complete")
 
                 if unique_news:
-                    render_summary("오늘의 AI 시장 동향 요약", summary)
+                    render_summary("오늘의 AI 시장 동향 요약", summary, used_model)
                     render_news_list(unique_news)
 
     # ════════════════════════════════
@@ -915,12 +1124,12 @@ def main():
                     st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
                     status.update(label=f"Gemini AI가 '{final_theme}' 대장주·관련주를 분석 중입니다...", state="running")
                     news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                    summary = summarize_with_gemini(final_theme, news_tuple, mode="theme")
-                    st.write("✅ AI 심층 분석 완료 (대장주 랭킹 포함)")
+                    summary, used_model = summarize_with_gemini(final_theme, news_tuple, mode="theme")
+                    st.write(f"✅ AI 심층 분석 완료 ({used_model})")
                     status.update(label="분석 완료!", state="complete")
 
             if unique_news:
-                render_summary(f"'{final_theme}' 테마 심층 분석", summary)
+                render_summary(f"'{final_theme}' 테마 심층 분석", summary, used_model)
                 render_news_list(unique_news)
 
     # ════════════════════════════════
@@ -1097,12 +1306,195 @@ def main():
                 for idx in asia_group:
                     render_world_index_card(idx)
 
+    # ════════════════════════════════
+    # TAB 6: 오후 시황 & 종가베팅
+    # ════════════════════════════════
+    with tab6:
+        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-title">&#127919; 오후 시황 & 종가베팅 대시보드</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<p style="color:rgba(255,255,255,0.5); font-size:0.85rem; margin-top:-0.5rem;">'
+            '장 막판 특징주 + 주도 테마를 빠르게 파악 (14:30~15:20 활용 추천)</p>',
+            unsafe_allow_html=True,
+        )
+
+        # ── 자동 새로고침 토글 (기본 OFF) ──
+        col_auto, col_info = st.columns([2, 3])
+        with col_auto:
+            auto_refresh = st.toggle(
+                "⚡ 1분 자동 새로고침",
+                value=False,
+                key="bet_auto_refresh",
+                help="장중에만 켜는 것을 추천. 캐시 ttl 안에서는 추가 API 호출 없음.",
+            )
+        with col_info:
+            if auto_refresh:
+                try:
+                    from streamlit_autorefresh import st_autorefresh
+                    refresh_count = st_autorefresh(interval=60_000, key="bet_autorefresh_counter")
+                    st.caption(f"🔄 #{refresh_count}회 새로고침 · {get_kst_now().strftime('%H:%M:%S')} KST")
+                except ImportError:
+                    st.caption("⚠️ streamlit-autorefresh 패키지 미설치")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # ── 서브탭 ──
+        bet_tab1, bet_tab2, bet_tab3 = st.tabs([
+            "  📊 거래대금 (장 마감 후)  ",
+            "  🔥 특징주 (실시간/마감)  ",
+            "  🤖 AI 종가베팅 분석  ",
+        ])
+
+        # ── BET-TAB1: 거래대금 (장 마감 후) ──
+        with bet_tab1:
+            st.markdown(
+                '<p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">'
+                '💡 장 마감 후 데이터 기준. 장중에는 전일 데이터일 수 있음. '
+                '실시간 데이터는 옆의 "특징주" 탭의 [실시간 모드]를 이용하세요.</p>',
+                unsafe_allow_html=True,
+            )
+            vol_btn2 = st.button("거래대금 TOP 30 조회", use_container_width=True, key="bet_vol_btn")
+            if vol_btn2:
+                with st.spinner("거래대금 데이터 수집 중..."):
+                    top_list, err_msg = fetch_trading_volume_top(30)
+                if not top_list:
+                    st.error(f"데이터 조회 실패: {err_msg}")
+                else:
+                    for item in top_list:
+                        amt_eok = item["amount"] / 1e8
+                        chg = item["change_ratio"]
+                        chg_color = "#ef4444" if chg > 0 else "#3b82f6" if chg < 0 else "rgba(255,255,255,0.5)"
+                        chg_sign = "+" if chg > 0 else ""
+                        st.markdown(f"""
+                        <div class="news-card" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="flex:1;">
+                                <span style="color:#667eea; font-weight:700; margin-right:0.5rem;">{item['rank']}</span>
+                                <strong>{item['name']}</strong>
+                                <span style="color:rgba(255,255,255,0.4); font-size:0.75rem; margin-left:0.4rem;">{item['code']} · {item['market']}</span>
+                            </div>
+                            <div style="display:flex; gap:1.2rem;">
+                                <span style="color:#e2e8f0;">{amt_eok:,.0f}억</span>
+                                <span style="color:{chg_color}; font-weight:600;">{chg_sign}{chg:.2f}%</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+        # ── BET-TAB2: 특징주 (실시간 vs 마감 후 옵션) ──
+        with bet_tab2:
+            data_source = st.radio(
+                "데이터 소스",
+                options=["🔴 실시간 (네이버 스크래핑)", "🟢 장 마감 후 (안정적)"],
+                horizontal=True,
+                key="feature_source",
+                help="실시간: 장중에도 동작 (네이버 금융 HTML). 장 마감 후: 거래대금 API 기반",
+            )
+            col_fc, col_fa = st.columns(2)
+            with col_fc:
+                min_chg = st.slider("최소 등락률 (%)", 3.0, 20.0, 5.0, 0.5, key="feat_min_chg")
+            with col_fa:
+                max_n = st.slider("표시 개수", 5, 50, 20, 1, key="feat_max_n")
+
+            feat_btn = st.button("특징주 조회", use_container_width=True, key="feat_btn")
+            if feat_btn:
+                with st.spinner("특징주 수집 중..."):
+                    if data_source.startswith("🔴"):
+                        # 실시간 - 네이버 스크래핑
+                        feature_list = [
+                            s for s in fetch_realtime_top_gainers(50)
+                            if s["change_ratio"] >= min_chg
+                        ][:max_n]
+                        source_label = "실시간 (네이버)"
+                    else:
+                        feature_list = fetch_feature_stocks_postclose(min_change=min_chg, limit=max_n)
+                        source_label = "장 마감 후"
+
+                if not feature_list:
+                    st.warning(f"등락률 +{min_chg}% 이상 특징주 없음")
+                else:
+                    st.success(f"✅ {len(feature_list)}개 특징주 ({source_label})")
+                    # 세션에 저장 → AI 분석 탭에서 재사용
+                    st.session_state["bet_features"] = feature_list
+                    st.session_state["bet_source_label"] = source_label
+
+                    for s in feature_list:
+                        chg = s["change_ratio"]
+                        amt_eok = s["amount"] / 1e8
+                        st.markdown(f"""
+                        <div class="news-card" style="display:flex; justify-content:space-between; align-items:center;">
+                            <div style="flex:1;">
+                                <span style="color:#667eea; font-weight:700; margin-right:0.5rem;">{s.get('display_rank', '')}</span>
+                                <strong>{s['name']}</strong>
+                                <span style="color:rgba(255,255,255,0.4); font-size:0.75rem; margin-left:0.4rem;">{s['code']} · {s.get('market', '')}</span>
+                            </div>
+                            <div style="display:flex; gap:1.2rem;">
+                                <span style="color:#e2e8f0;">{s.get('current', 0):,}원</span>
+                                <span style="color:#e2e8f0;">{amt_eok:,.0f}억</span>
+                                <span style="color:#ef4444; font-weight:600;">+{chg:.2f}%</span>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+            # 이전 조회 결과가 있으면 안내
+            if "bet_features" in st.session_state and not feat_btn:
+                st.info(
+                    f"💾 이전 조회 결과 {len(st.session_state['bet_features'])}개 종목이 "
+                    f"AI 분석 탭에서 사용 가능합니다 (소스: {st.session_state.get('bet_source_label', '?')})."
+                )
+
+        # ── BET-TAB3: AI 종가베팅 분석 ──
+        with bet_tab3:
+            st.markdown(
+                '<p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">'
+                '특징주 + 종목별 뉴스를 Gemini에게 던져서 <strong>주도 테마 TOP3</strong> + '
+                '<strong>상승 사유</strong> + <strong>종가베팅 코멘트</strong> 분석</p>',
+                unsafe_allow_html=True,
+            )
+
+            features_in_state = st.session_state.get("bet_features", [])
+
+            if not features_in_state:
+                st.warning("⚠️ 먼저 옆의 [특징주] 탭에서 특징주를 조회해 주세요.")
+            else:
+                src = st.session_state.get("bet_source_label", "?")
+                st.markdown(f"📋 분석 대상: **{len(features_in_state)}개 종목** ({src})")
+
+                # 분석에 쓸 종목 개수 제한 (LLM 토큰 절약)
+                analyze_n = st.slider("분석할 종목 수 (상위)", 3, min(20, len(features_in_state)),
+                                      min(10, len(features_in_state)), 1, key="ai_analyze_n")
+
+                ai_btn = st.button("🚀 AI 종가베팅 분석 실행", use_container_width=True,
+                                   disabled=not api_ok, key="ai_bet_btn")
+
+                if ai_btn:
+                    targets = features_in_state[:analyze_n]
+                    with st.status("AI 종가베팅 분석 진행 중...", expanded=True) as status:
+                        status.update(label="① 종목별 최신 뉴스 수집 중...", state="running")
+                        news_map = fetch_news_per_stock(targets, display=3)
+                        st.write(f"✅ {len(news_map)}개 종목 뉴스 수집 완료")
+
+                        status.update(label="② Gemini AI 분석 중 (폴백 체인 적용)...", state="running")
+                        stocks_tuple = tuple(
+                            (s["name"], s["code"], s["change_ratio"], s["amount"] / 1e8)
+                            for s in targets
+                        )
+                        news_tuple = tuple(
+                            (name, tuple((n["title"], n["description"]) for n in items))
+                            for name, items in news_map.items()
+                        )
+                        bet_summary, bet_model = analyze_closing_bet(stocks_tuple, news_tuple)
+                        st.write(f"✅ AI 분석 완료 ({bet_model})")
+                        status.update(label="완료!", state="complete")
+
+                    render_summary("🔥 종가베팅 AI 리포트", bet_summary, bet_model)
+
     # ── 사이드바 ────────────────────────────────────────────────
     with st.sidebar:
         kst_sidebar = get_kst_now()
 
         st.markdown(f"""
-        <div class="sidebar-model"><span>Gemini 2.5 Flash Lite</span></div>
+        <div class="sidebar-model"><span>Gemini Pro → Flash → Lite → 2.0 (자동 폴백)</span></div>
         <div class="sidebar-time">{kst_sidebar.strftime('%Y-%m-%d %H:%M:%S')} KST</div>
         """, unsafe_allow_html=True)
 
@@ -1126,6 +1518,10 @@ def main():
         <div class="sidebar-card">
             <h4>&#127760; 세계 증시</h4>
             <p>미국·한국·아시아 주요 지수 실시간 차트</p>
+        </div>
+        <div class="sidebar-card">
+            <h4>&#127919; 종가베팅</h4>
+            <p>특징주 + AI 분석 + 자동 새로고침. 14:30~15:20 활용 추천</p>
         </div>
         """, unsafe_allow_html=True)
 
