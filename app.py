@@ -1310,7 +1310,6 @@ def main():
     # TAB 6: 오후 시황 & 종가베팅
     # ════════════════════════════════
     with tab6:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown(
             '<div class="section-title">&#127919; 오후 시황 & 종가베팅 대시보드</div>',
             unsafe_allow_html=True,
@@ -1338,51 +1337,15 @@ def main():
                     st.caption(f"🔄 #{refresh_count}회 새로고침 · {get_kst_now().strftime('%H:%M:%S')} KST")
                 except ImportError:
                     st.caption("⚠️ streamlit-autorefresh 패키지 미설치")
-        st.markdown('</div>', unsafe_allow_html=True)
 
-        # ── 서브탭 ──
-        bet_tab1, bet_tab2, bet_tab3 = st.tabs([
-            "  📊 거래대금 (장 마감 후)  ",
+        # ── 서브탭 (2개) ──
+        bet_tab1, bet_tab2 = st.tabs([
             "  🔥 특징주 (실시간/마감)  ",
             "  🤖 AI 종가베팅 분석  ",
         ])
 
-        # ── BET-TAB1: 거래대금 (장 마감 후) ──
+        # ── BET-TAB1: 특징주 (실시간 vs 마감 후 옵션) ──
         with bet_tab1:
-            st.markdown(
-                '<p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">'
-                '💡 장 마감 후 데이터 기준. 장중에는 전일 데이터일 수 있음. '
-                '실시간 데이터는 옆의 "특징주" 탭의 [실시간 모드]를 이용하세요.</p>',
-                unsafe_allow_html=True,
-            )
-            vol_btn2 = st.button("거래대금 TOP 30 조회", use_container_width=True, key="bet_vol_btn")
-            if vol_btn2:
-                with st.spinner("거래대금 데이터 수집 중..."):
-                    top_list, err_msg = fetch_trading_volume_top(30)
-                if not top_list:
-                    st.error(f"데이터 조회 실패: {err_msg}")
-                else:
-                    for item in top_list:
-                        amt_eok = item["amount"] / 1e8
-                        chg = item["change_ratio"]
-                        chg_color = "#ef4444" if chg > 0 else "#3b82f6" if chg < 0 else "rgba(255,255,255,0.5)"
-                        chg_sign = "+" if chg > 0 else ""
-                        st.markdown(f"""
-                        <div class="news-card" style="display:flex; justify-content:space-between; align-items:center;">
-                            <div style="flex:1;">
-                                <span style="color:#667eea; font-weight:700; margin-right:0.5rem;">{item['rank']}</span>
-                                <strong>{item['name']}</strong>
-                                <span style="color:rgba(255,255,255,0.4); font-size:0.75rem; margin-left:0.4rem;">{item['code']} · {item['market']}</span>
-                            </div>
-                            <div style="display:flex; gap:1.2rem;">
-                                <span style="color:#e2e8f0;">{amt_eok:,.0f}억</span>
-                                <span style="color:{chg_color}; font-weight:600;">{chg_sign}{chg:.2f}%</span>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-
-        # ── BET-TAB2: 특징주 (실시간 vs 마감 후 옵션) ──
-        with bet_tab2:
             data_source = st.radio(
                 "데이터 소스",
                 options=["🔴 실시간 (네이버 스크래핑)", "🟢 장 마감 후 (안정적)"],
@@ -1390,11 +1353,7 @@ def main():
                 key="feature_source",
                 help="실시간: 장중에도 동작 (네이버 금융 HTML). 장 마감 후: 거래대금 API 기반",
             )
-            col_fc, col_fa = st.columns(2)
-            with col_fc:
-                min_chg = st.slider("최소 등락률 (%)", 3.0, 20.0, 5.0, 0.5, key="feat_min_chg")
-            with col_fa:
-                max_n = st.slider("표시 개수", 5, 50, 20, 1, key="feat_max_n")
+            st.caption("기준: 등락률 +5% 이상 · 최대 30개 표시")
 
             feat_btn = st.button("특징주 조회", use_container_width=True, key="feat_btn")
             if feat_btn:
@@ -1403,15 +1362,15 @@ def main():
                         # 실시간 - 네이버 스크래핑
                         feature_list = [
                             s for s in fetch_realtime_top_gainers(50)
-                            if s["change_ratio"] >= min_chg
-                        ][:max_n]
+                            if s["change_ratio"] >= 5.0
+                        ][:30]
                         source_label = "실시간 (네이버)"
                     else:
-                        feature_list = fetch_feature_stocks_postclose(min_change=min_chg, limit=max_n)
+                        feature_list = fetch_feature_stocks_postclose(min_change=5.0, limit=30)
                         source_label = "장 마감 후"
 
                 if not feature_list:
-                    st.warning(f"등락률 +{min_chg}% 이상 특징주 없음")
+                    st.warning("등락률 +5% 이상 특징주가 없습니다.")
                 else:
                     st.success(f"✅ {len(feature_list)}개 특징주 ({source_label})")
                     # 세션에 저장 → AI 분석 탭에서 재사용
@@ -1443,8 +1402,8 @@ def main():
                     f"AI 분석 탭에서 사용 가능합니다 (소스: {st.session_state.get('bet_source_label', '?')})."
                 )
 
-        # ── BET-TAB3: AI 종가베팅 분석 ──
-        with bet_tab3:
+        # ── BET-TAB2: AI 종가베팅 분석 ──
+        with bet_tab2:
             st.markdown(
                 '<p style="color:rgba(255,255,255,0.6); font-size:0.85rem;">'
                 '특징주 + 종목별 뉴스를 Gemini에게 던져서 <strong>주도 테마 TOP3</strong> + '
@@ -1458,17 +1417,17 @@ def main():
                 st.warning("⚠️ 먼저 옆의 [특징주] 탭에서 특징주를 조회해 주세요.")
             else:
                 src = st.session_state.get("bet_source_label", "?")
-                st.markdown(f"📋 분석 대상: **{len(features_in_state)}개 종목** ({src})")
-
-                # 분석에 쓸 종목 개수 제한 (LLM 토큰 절약)
-                analyze_n = st.slider("분석할 종목 수 (상위)", 3, min(20, len(features_in_state)),
-                                      min(10, len(features_in_state)), 1, key="ai_analyze_n")
+                analyze_count = min(10, len(features_in_state))
+                st.markdown(
+                    f"📋 분석 대상: **{len(features_in_state)}개 종목** ({src}) → "
+                    f"상위 **{analyze_count}개** 분석"
+                )
 
                 ai_btn = st.button("🚀 AI 종가베팅 분석 실행", use_container_width=True,
                                    disabled=not api_ok, key="ai_bet_btn")
 
                 if ai_btn:
-                    targets = features_in_state[:analyze_n]
+                    targets = features_in_state[:analyze_count]
                     with st.status("AI 종가베팅 분석 진행 중...", expanded=True) as status:
                         status.update(label="① 종목별 최신 뉴스 수집 중...", state="running")
                         news_map = fetch_news_per_stock(targets, display=3)
