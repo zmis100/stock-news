@@ -959,8 +959,8 @@ def main():
         st.warning("Gemini API 키가 설정되지 않았습니다.")
         api_ok = False
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-        "  종목 검색  ", "  시장 동향  ", "  테마 분석  ", "  거래대금  ", "  세계 증시  ", "  🎯 종가베팅  "
+    tab1, tab2, tab4, tab5, tab6 = st.tabs([
+        "  종목 검색  ", "  시장 동향  ", "  거래대금  ", "  세계 증시  ", "  🎯 종가베팅  "
     ])
 
     # ════════════════════════════════
@@ -1016,114 +1016,46 @@ def main():
             unsafe_allow_html=True,
         )
 
-        preset_keywords = st.multiselect(
-            "추천 키워드 선택",
-            options=["코스피", "코스닥", "미국증시", "환율", "금리", "반도체", "2차전지", "AI 주식"],
-            default=["코스피", "코스닥"],
+        market_choice = st.radio(
+            "시장 선택",
+            options=["🇰🇷 국내 증시", "🇺🇸 미국 증시"],
+            horizontal=True,
+            key="market_choice",
         )
-        custom_input = st.text_input(
-            "직접 키워드 입력 (쉼표로 구분)",
-            placeholder="전기차, 삼성전자, 유가 ...",
-            key="custom_keywords",
-        )
-        custom_keywords = [k.strip() for k in custom_input.split(",") if k.strip()] if custom_input else []
-        keywords = list(dict.fromkeys(preset_keywords + custom_keywords))
 
-        if keywords:
-            render_keyword_chips(keywords)
+        # 선택에 따른 키워드 매핑
+        if market_choice.startswith("🇰🇷"):
+            keywords = ["코스피", "코스닥", "한국증시"]
+            market_label = "국내 증시"
+        else:
+            keywords = ["미국증시", "나스닥", "다우존스", "S&P500"]
+            market_label = "미국 증시"
 
-        today_btn = st.button("시장 동향 분석", use_container_width=True,
+        render_keyword_chips(keywords)
+
+        today_btn = st.button(f"{market_label} 시장 동향 분석", use_container_width=True,
                               disabled=not api_ok, key="today_btn")
 
         if today_btn:
-            if not keywords:
-                st.warning("키워드를 하나 이상 선택해 주세요.")
-            else:
-                with st.status(f"{len(keywords)}개 키워드 시장 동향 분석 중...", expanded=True) as status:
-                    status.update(label=f"네이버 뉴스 수집 중... ({len(keywords)}개 키워드 병렬 처리)", state="running")
-                    unique_news = fetch_multiple_keywords(keywords, display=5)
-
-                    if not unique_news:
-                        status.update(label="뉴스 수집 실패", state="error")
-                        st.error("뉴스를 가져오지 못했습니다.")
-                    else:
-                        st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
-                        status.update(label="Gemini AI가 오늘의 시장을 분석 중입니다...", state="running")
-                        news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                        summary, used_model = summarize_with_gemini(
-                            ", ".join(keywords), news_tuple, mode="today"
-                        )
-                        st.write(f"✅ AI 분석 완료 ({used_model})")
-                        status.update(label="분석 완료!", state="complete")
-
-                if unique_news:
-                    render_summary("오늘의 AI 시장 동향 요약", summary, used_model)
-                    render_news_list(unique_news)
-
-    # ════════════════════════════════
-    # TAB 3: 테마별 분석
-    # ════════════════════════════════
-    with tab3:
-        st.markdown('<div class="section-title">&#128202; 투자 테마 심층 분석</div>', unsafe_allow_html=True)
-
-        all_themes = [
-            "2차전지", "태양광", "원자력", "수소에너지", "희토류",
-            "반도체", "AI 인공지능", "클라우드", "로봇", "자율주행",
-            "바이오", "제약", "헬스케어", "신약개발",
-            "금리", "환율", "부동산", "가상화폐", "IPO",
-            "미국증시", "중국경제", "유럽증시", "신흥국",
-            "조선", "방산", "건설", "항공우주", "전력설비", "방위산업",
-        ]
-
-        selected_theme = st.selectbox(
-            "추천 테마에서 선택",
-            options=all_themes,
-            key="theme_select",
-        )
-
-        custom_theme = st.text_input(
-            "또는 직접 테마 입력",
-            placeholder="전력설비, 스마트팩토리, K-뷰티 ...",
-            key="custom_theme",
-        )
-
-        final_theme = custom_theme.strip() if custom_theme.strip() else selected_theme
-
-        if final_theme:
-            render_keyword_chips([final_theme])
-
-        theme_btn = st.button("테마 심층 분석", use_container_width=True,
-                              disabled=not api_ok, key="theme_btn")
-
-        if theme_btn:
-            search_queries = [f"{final_theme} 관련주", f"{final_theme} 시장", f"{final_theme} 전망"]
-            with st.status(f"'{final_theme}' 테마 심층 분석 중...", expanded=True) as status:
-                all_news = []
-                for i, q in enumerate(search_queries, 1):
-                    status.update(label=f"네이버 뉴스 수집 중... ({i}/{len(search_queries)}: {q})", state="running")
-                    news = fetch_naver_news(q, display=5)
-                    all_news.extend(news)
-
-                seen = set()
-                unique_news = []
-                for n in all_news:
-                    if n["title"] not in seen:
-                        seen.add(n["title"])
-                        unique_news.append(n)
+            with st.status(f"{market_label} 시장 동향 분석 중...", expanded=True) as status:
+                status.update(label=f"네이버 뉴스 수집 중... ({len(keywords)}개 키워드 병렬 처리)", state="running")
+                unique_news = fetch_multiple_keywords(keywords, display=5)
 
                 if not unique_news:
                     status.update(label="뉴스 수집 실패", state="error")
                     st.error("뉴스를 가져오지 못했습니다.")
                 else:
                     st.write(f"✅ 뉴스 {len(unique_news)}건 수집 완료 (중복 제거)")
-                    status.update(label=f"Gemini AI가 '{final_theme}' 대장주·관련주를 분석 중입니다...", state="running")
+                    status.update(label="Gemini AI가 오늘의 시장을 분석 중입니다...", state="running")
                     news_tuple = tuple((n["title"], n["description"]) for n in unique_news)
-                    summary, used_model = summarize_with_gemini(final_theme, news_tuple, mode="theme")
-                    st.write(f"✅ AI 심층 분석 완료 ({used_model})")
+                    summary, used_model = summarize_with_gemini(
+                        ", ".join(keywords), news_tuple, mode="today"
+                    )
+                    st.write(f"✅ AI 분석 완료 ({used_model})")
                     status.update(label="분석 완료!", state="complete")
 
             if unique_news:
-                render_summary(f"'{final_theme}' 테마 심층 분석", summary, used_model)
+                render_summary(f"{market_label} AI 시장 동향 요약", summary, used_model)
                 render_news_list(unique_news)
 
     # ════════════════════════════════
@@ -1455,10 +1387,6 @@ def main():
         <div class="sidebar-card">
             <h4>&#128197; 시장 동향</h4>
             <p>키워드 선택/입력 &rarr; 동향 분석 &rarr; 오늘의 리포트</p>
-        </div>
-        <div class="sidebar-card">
-            <h4>&#128202; 테마 분석</h4>
-            <p>테마 선택/입력 &rarr; 심층 분석 &rarr; 대장주 랭킹</p>
         </div>
         <div class="sidebar-card">
             <h4>&#128293; 거래대금</h4>
