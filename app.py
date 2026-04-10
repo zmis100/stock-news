@@ -967,7 +967,6 @@ def main():
     # TAB 1: 종목 검색
     # ════════════════════════════════
     with tab1:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">&#128270; 종목명으로 뉴스 검색</div>', unsafe_allow_html=True)
 
         col1, col2 = st.columns([4, 1])
@@ -981,7 +980,6 @@ def main():
         with col2:
             search_btn = st.button("분석", use_container_width=True,
                                    disabled=not api_ok, key="stock_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
 
         if search_btn and stock_name.strip():
             query = f"{stock_name.strip()} 주식"
@@ -1013,7 +1011,6 @@ def main():
     with tab2:
         today_str = get_kst_today_str()
 
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown(
             f'<div class="section-title">&#128197; {today_str} 시장 동향</div>',
             unsafe_allow_html=True,
@@ -1037,7 +1034,6 @@ def main():
 
         today_btn = st.button("시장 동향 분석", use_container_width=True,
                               disabled=not api_ok, key="today_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
 
         if today_btn:
             if not keywords:
@@ -1068,7 +1064,6 @@ def main():
     # TAB 3: 테마별 분석
     # ════════════════════════════════
     with tab3:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">&#128202; 투자 테마 심층 분석</div>', unsafe_allow_html=True)
 
         all_themes = [
@@ -1099,7 +1094,6 @@ def main():
 
         theme_btn = st.button("테마 심층 분석", use_container_width=True,
                               disabled=not api_ok, key="theme_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
 
         if theme_btn:
             search_queries = [f"{final_theme} 관련주", f"{final_theme} 시장", f"{final_theme} 전망"]
@@ -1138,7 +1132,6 @@ def main():
     with tab4:
         today_str = get_kst_today_str()
 
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown(
             f'<div class="section-title">&#128293; {today_str} 거래대금 상위 종목</div>',
             unsafe_allow_html=True,
@@ -1148,7 +1141,6 @@ def main():
             'KRX 전종목 거래대금 기준 (KOSPI + KOSDAQ)</p>',
             unsafe_allow_html=True,
         )
-        st.markdown('</div>', unsafe_allow_html=True)
 
         # 장 운영 시간 체크 (평일 09:00~15:30)
         now_kst = get_kst_now()
@@ -1251,7 +1243,6 @@ def main():
     # TAB 5: 세계 증시 현황
     # ════════════════════════════════
     with tab5:
-        st.markdown('<div class="glass-card">', unsafe_allow_html=True)
         st.markdown(
             '<div class="section-title">&#127760; 세계 주요 증시 현황</div>',
             unsafe_allow_html=True,
@@ -1262,7 +1253,6 @@ def main():
             unsafe_allow_html=True,
         )
         world_btn = st.button("새로고침", use_container_width=True, key="world_refresh_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
 
         if world_btn:
             fetch_world_indices.clear()
