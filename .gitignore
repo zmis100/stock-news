@@ -1,5 +1,34 @@
+# 환경/시크릿
 .env
+.streamlit/secrets.toml
+
+# 가상환경
 venv/
+.venv/
+
+# Python 캐시
 __pycache__/
 *.pyc
-.streamlit/secrets.toml
+*.pyo
+
+# 로컬 사용자 데이터 (즐겨찾기/히스토리/알림 룰/테마 캐시/로그)
+data/
+
+# 백업/임시
+*.py.bak
+*.tmp
+*.swp
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 다른 프로젝트 부산물
+alerts/
+create_ppt.py
+stock-news-summarizer/
+.github/
