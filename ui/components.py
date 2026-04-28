@@ -264,15 +264,22 @@ def render_sidebar(
         if get_history_fn is not None:
             hist = get_history_fn()
             if hist:
-                col_h1, col_h2 = st.columns([4, 1])
+                col_h1, col_h2 = st.columns([5, 1])
                 with col_h1:
                     st.markdown(
-                        '<div class="sidebar-card" style="margin-bottom:0.3rem;">'
-                        '<h4>&#128338; 최근 분석</h4></div>',
+                        '<div class="sidebar-card" '
+                        'style="padding:0.55rem 0.8rem; margin:0.5rem 0 0.3rem 0;">'
+                        '<h4 style="margin:0; padding:0;">&#128338; 최근 분석</h4>'
+                        '</div>',
                         unsafe_allow_html=True,
                     )
                 with col_h2:
-                    if st.button("🗑", key="history_clear", help="히스토리 비우기"):
+                    if st.button(
+                        "🗑",
+                        key="history_clear",
+                        help="히스토리 비우기",
+                        use_container_width=True,
+                    ):
                         if on_history_clear:
                             on_history_clear()
                 for h in hist:
