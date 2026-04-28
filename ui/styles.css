@@ -253,6 +253,47 @@ section[data-testid="stSidebar"] {
 }
 section[data-testid="stSidebar"] .stMarkdown { color: rgba(255,255,255,0.7); }
 
+/* 사이드바 안의 columns 세로 가운데 정렬 (헤더 카드 + 버튼) */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"] {
+    align-items: center !important;
+    gap: 0.4rem !important;
+}
+
+/* 사이드바 columns 자체를 카드처럼 — 안에 .history-card-marker 가 있을 때만 */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.history-card-marker) {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 0.45rem 0.6rem !important;
+    margin: 0.5rem 0 0.3rem 0;
+}
+
+.history-card-marker {
+    color: #a78bfa;
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    display: inline-block;
+}
+
+/* 카드 안의 휴지통 버튼 — plain한 secondary 스타일로 */
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.history-card-marker) .stButton > button {
+    background: transparent !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    box-shadow: none !important;
+    color: rgba(255,255,255,0.7) !important;
+    padding: 0.15rem 0.5rem !important;
+    font-size: 0.85rem !important;
+    min-height: 1.8rem !important;
+    height: 1.8rem !important;
+}
+section[data-testid="stSidebar"] [data-testid="stHorizontalBlock"]:has(.history-card-marker) .stButton > button:hover {
+    background: rgba(239,68,68,0.15) !important;
+    border-color: rgba(239,68,68,0.4) !important;
+    color: #fca5a5 !important;
+    transform: none !important;
+}
+
 .sidebar-card {
     background: rgba(255,255,255,0.04);
     border: 1px solid rgba(255,255,255,0.08);
