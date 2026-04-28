@@ -13,7 +13,11 @@ def render():
     )
     st.markdown(
         '<p style="color:rgba(255,255,255,0.5); font-size:0.85rem; margin-top:-0.5rem;">'
-        '관심종목 임계값 알림 + 매일 15:20 / 19:50 일일 요약 자동 발송</p>',
+        '관심종목 임계값 알림 + 매일 15:20 / 19:50 일일 요약 자동 발송<br>'
+        '<span style="color:rgba(255,255,255,0.4); font-size:0.75rem;">'
+        '⚠️ 알림 룰은 서버 공용 저장 (즐겨찾기/히스토리만 브라우저별 분리). '
+        '자동 발송은 사용자 본인 PC에서만 동작 (Cloud 배포 시 X)'
+        '</span></p>',
         unsafe_allow_html=True,
     )
 

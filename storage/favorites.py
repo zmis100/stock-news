@@ -1,75 +1,71 @@
-"""관심 종목 (즐겨찾기) JSON 저장소.
+"""관심 종목 (즐겨찾기) — 브라우저 LocalStorage 기반.
 
-단일 사용자/로컬 환경 가정. 동시성 이슈 없음.
-Streamlit Cloud 배포 시 ephemeral filesystem이라 휘발됨 → 추후 sqlite/cloud로 이전 가능.
+각 사용자(브라우저)별로 분리 저장.
+Streamlit Cloud 배포 시 모든 방문자가 자기 데이터만 보게 됨.
 """
 import json
-from pathlib import Path
+import time
 
-_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-_FAV_PATH = _DATA_DIR / "favorites.json"
+from storage._browser import get_ls
+
+_KEY = "stock_news_favorites"
 _MAX_FAVORITES = 30
 
 
-def _ensure_dir():
-    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+def _read() -> list[str]:
+    raw = get_ls().getItem(_KEY)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [str(x) for x in data if x][:_MAX_FAVORITES]
+        return []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def _write(items: list[str]):
+    payload = json.dumps(items, ensure_ascii=False)
+    get_ls().setItem(_KEY, payload, key=f"set_fav_{time.time_ns()}")
 
 
 def load() -> list[str]:
-    """즐겨찾기 목록 로드. 없으면 빈 리스트."""
-    if not _FAV_PATH.exists():
-        return []
-    try:
-        data = json.loads(_FAV_PATH.read_text(encoding="utf-8"))
-        if isinstance(data, list):
-            return [str(x) for x in data if x]
-        return []
-    except (json.JSONDecodeError, OSError):
-        return []
-
-
-def _save(items: list[str]):
-    _ensure_dir()
-    _FAV_PATH.write_text(
-        json.dumps(items, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    return _read()
 
 
 def add(name: str) -> tuple[bool, str]:
-    """즐겨찾기 추가. (성공여부, 메시지) 반환."""
     name = (name or "").strip()
     if not name:
         return False, "종목명이 비어있습니다."
 
-    items = load()
+    items = _read()
     if name in items:
         return False, f"'{name}'은(는) 이미 즐겨찾기에 있습니다."
     if len(items) >= _MAX_FAVORITES:
         return False, f"즐겨찾기는 최대 {_MAX_FAVORITES}개까지 저장 가능합니다."
 
     items.append(name)
-    _save(items)
+    _write(items)
     return True, f"⭐ '{name}' 추가됨"
 
 
 def remove(name: str) -> tuple[bool, str]:
-    items = load()
+    items = _read()
     if name not in items:
         return False, f"'{name}'은(는) 즐겨찾기에 없습니다."
     items.remove(name)
-    _save(items)
+    _write(items)
     return True, f"'{name}' 제거됨"
 
 
 def is_favorited(name: str) -> bool:
-    return name in load()
+    return name in _read()
 
 
 def toggle(name: str) -> tuple[bool, str]:
-    """추가/제거 토글. (현재 등록상태, 메시지) 반환."""
+    """추가/제거 토글. (등록상태, 메시지) 반환."""
     if is_favorited(name):
         ok, msg = remove(name)
         return False, msg
-    ok, msg = add(name)
-    return ok, msg
+    return add(name)
